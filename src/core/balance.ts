@@ -36,9 +36,9 @@ export const BOSS_TUNING: Readonly<
   /** 봉쇄자: seals one random row or column. */
   warden: { period: 5, lockTurns: 2, minValue: 0, stones: 0 },
   /** 부식자: halves the largest tile (only if it is at least `minValue`). */
-  corroder: { period: 4, lockTurns: 0, minValue: 4, stones: 0 },
+  corroder: { period: 4, lockTurns: 0, minValue: 8, stones: 0 },
   /** 혼돈: shuffles the board and drops `stones` stones. */
-  chaos: { period: 6, lockTurns: 0, minValue: 0, stones: 1 },
+  chaos: { period: 5, lockTurns: 0, minValue: 0, stones: 1 },
 };
 
 /** Hazard presets used by the stage table (spread and overridden per stage). */
@@ -57,66 +57,70 @@ const H = {
  * The run: 3 acts × (3 normal stages + 1 boss). Act 1 doubles as the tutorial:
  * stage 1 has no hazards, stage 2 introduces stone, stage 3 ice; curse arrives
  * in act 2. The board resets at every stage; relics carry over.
+ *
+ * Stage 4 balance pass (docs/STUDY.md 4.7): shorter stages, more stones (board
+ * pressure makes 'stuck' a real way to lose), a stone stage that needs ten
+ * deliberate breaks, and score targets low enough to be possible without relics.
  */
 export const STAGE_TABLE: readonly StageSpec[] = [
-  // Act 1
+  // Act 1: the tutorial. Merge (1), break stones on purpose (2), work around ice (3), seal (boss).
   {
     act: 1,
-    goal: { type: 'score', target: 360 },
-    moveLimit: 60,
+    goal: { type: 'tile', value: 64 },
+    moveLimit: 70,
     hazards: H.none,
     boss: null,
     introduces: null,
   },
   {
     act: 1,
-    goal: { type: 'stones', count: 3 },
-    moveLimit: 45,
-    hazards: { ...H.none, startStones: 2, stoneChance: 0.1, maxStones: 3 },
+    goal: { type: 'stones', count: 10 },
+    moveLimit: 55,
+    hazards: { ...H.none, startStones: 2, stoneChance: 0.3, maxStones: 2 },
     boss: null,
     introduces: 'stone',
   },
   {
     act: 1,
     goal: { type: 'tile', value: 64 },
-    moveLimit: 70,
-    hazards: { ...H.none, stoneChance: 0.04, maxStones: 2, iceChance: 0.07, iceTurns: 3 },
+    moveLimit: 65,
+    hazards: { ...H.none, stoneChance: 0.2, maxStones: 5, iceChance: 0.1, iceTurns: 3 },
     boss: null,
     introduces: 'ice',
   },
   {
     act: 1,
     goal: { type: 'tile', value: 128 },
-    moveLimit: 105,
-    hazards: { ...H.none, stoneChance: 0.1, maxStones: 3, iceChance: 0.06, iceTurns: 3 },
+    moveLimit: 120,
+    hazards: { ...H.none, stoneChance: 0.2, maxStones: 5, iceChance: 0.06, iceTurns: 3 },
     boss: 'warden',
     introduces: null,
   },
   // Act 2
   {
     act: 2,
-    goal: { type: 'score', target: 1100 },
-    moveLimit: 115,
+    goal: { type: 'score', target: 700 },
+    moveLimit: 90,
     hazards: {
       ...H.none,
-      stoneChance: 0.05,
-      maxStones: 2,
-      iceChance: 0.05,
+      stoneChance: 0.08,
+      maxStones: 3,
+      iceChance: 0.06,
       iceTurns: 3,
-      curseChance: 0.06,
+      curseChance: 0.1,
     },
     boss: null,
     introduces: 'curse',
   },
   {
     act: 2,
-    goal: { type: 'stones', count: 7 },
-    moveLimit: 90,
+    goal: { type: 'stones', count: 10 },
+    moveLimit: 60,
     hazards: {
       ...H.none,
-      startStones: 2,
-      stoneChance: 0.12,
-      maxStones: 4,
+      startStones: 3,
+      stoneChance: 0.3,
+      maxStones: 3,
       iceChance: 0.05,
       iceTurns: 3,
       curseChance: 0.05,
@@ -127,29 +131,29 @@ export const STAGE_TABLE: readonly StageSpec[] = [
   {
     act: 2,
     goal: { type: 'tile', value: 128 },
-    moveLimit: 135,
+    moveLimit: 105,
     hazards: {
       ...H.none,
-      stoneChance: 0.06,
-      maxStones: 3,
+      stoneChance: 0.28,
+      maxStones: 7,
       iceChance: 0.06,
       iceTurns: 3,
-      curseChance: 0.07,
+      curseChance: 0.05,
     },
     boss: null,
     introduces: null,
   },
   {
     act: 2,
-    goal: { type: 'score', target: 2000 },
-    moveLimit: 170,
+    goal: { type: 'score', target: 800 },
+    moveLimit: 110,
     hazards: {
       ...H.none,
-      stoneChance: 0.05,
-      maxStones: 2,
+      stoneChance: 0.22,
+      maxStones: 6,
       iceChance: 0.05,
       iceTurns: 3,
-      curseChance: 0.06,
+      curseChance: 0.08,
     },
     boss: 'corroder',
     introduces: null,
@@ -158,13 +162,44 @@ export const STAGE_TABLE: readonly StageSpec[] = [
   {
     act: 3,
     goal: { type: 'tile', value: 128 },
-    moveLimit: 125,
+    moveLimit: 105,
     hazards: {
       ...H.none,
-      stoneChance: 0.1,
-      maxStones: 4,
-      iceChance: 0.1,
+      stoneChance: 0.28,
+      maxStones: 7,
+      iceChance: 0.12,
       iceTurns: 3,
+      curseChance: 0.06,
+    },
+    boss: null,
+    introduces: null,
+  },
+  {
+    act: 3,
+    goal: { type: 'stones', count: 16 },
+    moveLimit: 80,
+    hazards: {
+      ...H.none,
+      startStones: 4,
+      stoneChance: 0.3,
+      maxStones: 4,
+      iceChance: 0.07,
+      iceTurns: 3,
+      curseChance: 0.07,
+    },
+    boss: null,
+    introduces: null,
+  },
+  {
+    act: 3,
+    goal: { type: 'score', target: 1000 },
+    moveLimit: 110,
+    hazards: {
+      ...H.none,
+      stoneChance: 0.2,
+      maxStones: 6,
+      iceChance: 0.08,
+      iceTurns: 4,
       curseChance: 0.1,
     },
     boss: null,
@@ -172,46 +207,15 @@ export const STAGE_TABLE: readonly StageSpec[] = [
   },
   {
     act: 3,
-    goal: { type: 'stones', count: 12 },
-    moveLimit: 110,
-    hazards: {
-      ...H.none,
-      startStones: 3,
-      stoneChance: 0.15,
-      maxStones: 5,
-      iceChance: 0.07,
-      iceTurns: 3,
-      curseChance: 0.07,
-    },
-    boss: null,
-    introduces: null,
-  },
-  {
-    act: 3,
-    goal: { type: 'score', target: 3000 },
-    moveLimit: 200,
-    hazards: {
-      ...H.none,
-      stoneChance: 0.07,
-      maxStones: 3,
-      iceChance: 0.07,
-      iceTurns: 4,
-      curseChance: 0.08,
-    },
-    boss: null,
-    introduces: null,
-  },
-  {
-    act: 3,
     goal: { type: 'tile', value: 256 },
-    moveLimit: 220,
+    moveLimit: 170,
     hazards: {
       ...H.none,
-      stoneChance: 0.06,
-      maxStones: 3,
+      stoneChance: 0.08,
+      maxStones: 4,
       iceChance: 0.06,
       iceTurns: 3,
-      curseChance: 0.07,
+      curseChance: 0.06,
     },
     boss: 'chaos',
     introduces: null,
@@ -253,7 +257,7 @@ export const RELIC_TUNING = {
   /** 잔해 연료: moves gained per stone broken. */
   movesPerStone: 1,
   /** 쌍둥이 씨앗: added chance that a spawn is a 4. */
-  fourChanceBonus: 0.2,
+  fourChanceBonus: 0.1,
   /** 점화 플러그: value of the tile placed at stage start. */
   igniteValue: 16,
   /** 지연 장막: added moves between boss triggers. */

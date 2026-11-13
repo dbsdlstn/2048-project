@@ -189,6 +189,28 @@ export function spawnOnRandomEmpty(
   return placeTile({ ...state, rng: roll.rng }, empty[roll.value] as number, kind, value);
 }
 
+/** Indices of the four corner cells, in row-major order. */
+export function cornerIndices(size: number): number[] {
+  const last = size - 1;
+  return [0, last, last * size, last * size + last];
+}
+
+/**
+ * Places a tile on a random empty corner (not in `blocked`); falls back to any
+ * random empty cell when every corner is taken. Unchanged if the board is full.
+ */
+export function spawnInCorner(
+  state: GameState,
+  kind: TileKind,
+  value: number,
+  blocked?: ReadonlySet<number>,
+): { state: GameState; events: TurnEvent[] } {
+  const corners = cornerIndices(state.size).filter((i) => !state.cells[i] && !blocked?.has(i));
+  if (corners.length === 0) return spawnOnRandomEmpty(state, kind, value, blocked);
+  const roll = nextInt(state.rng, corners.length);
+  return placeTile({ ...state, rng: roll.rng }, corners[roll.value] as number, kind, value);
+}
+
 /**
  * Places one random number tile (2, or 4 with `rules.fourChance`) on a random
  * empty cell. Returns the state unchanged with no events if the board is full.

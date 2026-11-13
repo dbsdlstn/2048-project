@@ -9,27 +9,31 @@
  *
  * The template is static (no user data), so innerHTML is safe here.
  */
-import type { RelicId, RunMode } from '../core';
+import type { RelicId } from '../core';
 import type { UiDisplay } from '../game/runController';
 import type { Hint, HudModel, ScreenModel, StageBanner } from '../game/runView';
 import { ref, replayClass } from './dom';
 import { Hud } from './hud';
-import { menuScreen, offerScreen, pauseScreen, resultScreen } from './screens';
+import {
+  confirmScreen,
+  helpScreen,
+  menuScreen,
+  offerScreen,
+  pauseScreen,
+  resultScreen,
+  settingsScreen,
+  type ScreenHandlers,
+} from './screens';
 
-export interface GameScreenHandlers {
-  readonly onStart: (mode: RunMode) => void;
-  readonly onChooseRelic: (id: RelicId | null) => void;
+/** Length of the stage banner animation (keep in sync with `.banner.show` in style.css). */
+const BANNER_MS = 2800;
+
+export interface GameScreenHandlers extends ScreenHandlers {
   readonly onActivateRelic: (id: RelicId) => void;
   readonly onCancelTargeting: () => void;
   readonly onPause: () => void;
-  readonly onResume: () => void;
-  readonly onQuit: () => void;
-  readonly onRetry: () => void;
   readonly onDismissHint: () => void;
 }
-
-/** Length of the stage banner animation (keep in sync with `.banner.show` in style.css). */
-const BANNER_MS = 1400;
 
 const TEMPLATE = `
   <div class="game" data-ref="game">
@@ -50,7 +54,10 @@ const TEMPLATE = `
           <span class="goal-text" data-ref="goalText"></span>
           <span class="goal-count" data-ref="goalCount"></span>
         </div>
-        <div class="bar"><div class="bar-fill" data-ref="goalBar"></div></div>
+        <div class="bar">
+          <div class="bar-pace" data-ref="goalPace" hidden></div>
+          <div class="bar-fill" data-ref="goalBar"></div>
+        </div>
       </div>
       <div class="moves" data-ref="moves">
         <span class="moves-label" data-ref="movesLabel">남은 이동</span>
@@ -61,7 +68,7 @@ const TEMPLATE = `
       <div class="boss-line">
         <span class="boss-name" data-ref="bossName"></span>
         <span class="boss-preview" data-ref="bossPreview"></span>
-        <span class="boss-count" aria-label="발동까지 남은 턴"><b data-ref="bossCount">0</b>턴</span>
+        <span class="boss-count"><small data-ref="bossCountLabel">발동까지</small><b data-ref="bossCount">0</b>턴</span>
       </div>
       <p class="boss-rule" data-ref="bossRule"></p>
     </section>
@@ -69,14 +76,15 @@ const TEMPLATE = `
       <div class="board" data-ref="board">
         <canvas class="board-canvas" role="img" aria-label="게임 보드"></canvas>
         <div class="banner" data-ref="banner" aria-live="polite"></div>
-        <div class="hint" data-ref="hint" role="status" hidden>
-          <p><strong data-ref="hintTitle"></strong><span data-ref="hintText"></span></p>
-          <button type="button" class="hint-close" data-ref="hintClose">확인</button>
-        </div>
       </div>
     </div>
     <section class="actives" data-ref="actives" hidden></section>
-    <section class="tray">
+    <section class="tray" data-ref="trayBox">
+      <!-- Hints live here, below the board: they never cover a cell they talk about. -->
+      <div class="hint" data-ref="hint" role="status" hidden>
+        <p><strong data-ref="hintTitle"></strong><span data-ref="hintText"></span></p>
+        <button type="button" class="hint-close" data-ref="hintClose">확인</button>
+      </div>
       <div class="tray-chips" data-ref="tray"></div>
       <button type="button" class="tray-all" data-ref="trayAll" aria-label="가진 유물 전체 보기">유물</button>
       <div class="tooltip" data-ref="tooltip" role="tooltip" hidden></div>
@@ -104,6 +112,7 @@ export class GameUi implements UiDisplay {
   private readonly sheet: HTMLElement;
   private readonly banner: HTMLElement;
   private readonly hintBox: HTMLElement;
+  private readonly trayBox: HTMLElement;
   private readonly hintTitle: HTMLElement;
   private readonly hintText: HTMLElement;
   private readonly targetBar: HTMLElement;
@@ -111,7 +120,7 @@ export class GameUi implements UiDisplay {
   private readonly targetError: HTMLElement;
   private lastHud: HudModel | null = null;
   private screen: ScreenModel['kind'] = 'menu';
-  /** Until when (performance.now) the stage banner covers the board. */
+  /** Until when (performance.now) the stage banner is on screen. */
   private bannerUntil = 0;
   /** Whether the last input came from a keyboard (then sheets move focus to their first button). */
   private keyboard = false;
@@ -124,6 +133,7 @@ export class GameUi implements UiDisplay {
     this.sheet = ref(surface, 'sheet', HTMLElement);
     this.banner = ref(surface, 'banner', HTMLElement);
     this.hintBox = ref(surface, 'hint', HTMLElement);
+    this.trayBox = ref(surface, 'trayBox', HTMLElement);
     this.hintTitle = ref(surface, 'hintTitle', HTMLElement);
     this.hintText = ref(surface, 'hintText', HTMLElement);
     this.targetBar = ref(surface, 'targetBar', HTMLElement);
@@ -162,7 +172,11 @@ export class GameUi implements UiDisplay {
   showScreen(screen: ScreenModel): void {
     this.screen = screen.kind;
     this.surface.dataset.screen = screen.kind;
-    this.game.hidden = screen.kind === 'menu';
+    // The game stays visible behind sheets opened from the pause screen only.
+    this.game.hidden =
+      screen.kind === 'menu' ||
+      screen.kind === 'confirm' ||
+      ((screen.kind === 'help' || screen.kind === 'settings') && screen.back === 'menu');
     const targeting = screen.kind === 'targeting';
     this.targetBar.hidden = !targeting;
     this.hud.setTargeting(targeting ? screen.relic : null);
@@ -176,7 +190,16 @@ export class GameUi implements UiDisplay {
     let content: HTMLElement | null = null;
     switch (screen.kind) {
       case 'menu':
-        content = menuScreen(screen.records, h);
+        content = menuScreen(screen, h);
+        break;
+      case 'help':
+        content = helpScreen(screen, h);
+        break;
+      case 'settings':
+        content = settingsScreen(screen, h);
+        break;
+      case 'confirm':
+        content = confirmScreen(screen, h);
         break;
       case 'offer':
         content = offerScreen(screen, h);
@@ -211,25 +234,33 @@ export class GameUi implements UiDisplay {
 
   showHint(hint: Hint | null): void {
     this.hintBox.hidden = hint === null;
+    this.trayBox.classList.toggle('has-hint', hint !== null);
     if (hint) {
       this.hintTitle.textContent = hint.title;
       this.hintText.textContent = hint.text;
-      // A hint that arrives with a stage waits for the stage banner to fade.
-      const wait = Math.max(0, this.bannerUntil - performance.now());
-      this.hintBox.style.animationDelay = `${Math.round(wait)}ms`;
       replayClass(this.hintBox, 'show');
     }
   }
 
-  announceStage(banner: StageBanner): void {
-    this.banner.replaceChildren();
+  /** Shows the stage banner (it fades by itself, or on the first input); null takes it down. */
+  announceStage(banner: StageBanner | null): void {
+    if (!banner) {
+      // Only a banner still on screen fades out (re-animating a faded one would flash it).
+      if (performance.now() < this.bannerUntil) this.banner.classList.add('leave');
+      this.bannerUntil = 0;
+      return;
+    }
     const title = document.createElement('strong');
     title.textContent = banner.title;
+    const goal = document.createElement('b');
+    goal.textContent = banner.goal;
     const detail = document.createElement('span');
     detail.textContent = banner.detail;
-    this.banner.append(title, detail);
+    this.banner.replaceChildren(title, goal, detail);
+    this.banner.classList.remove('leave');
     replayClass(this.banner, 'show');
     this.bannerUntil = performance.now() + BANNER_MS;
+    this.hud.introduce();
   }
 
   pulseRelic(id: RelicId): void {

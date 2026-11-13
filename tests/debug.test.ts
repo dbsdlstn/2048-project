@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { runMove, startRun, toValueGrid, type RunStep } from '../src/core';
+import { STAGES } from '../src/core';
 import { RunController, type BoardDisplay, type UiDisplay } from '../src/game/runController';
 import { createDebugApi, readLaunchParams, startOptions } from '../src/game/debug';
 import { BoardView, ManualClock, PausableClock } from '../src/render';
@@ -153,7 +154,8 @@ describe('debug API load', () => {
     api.start('run', 9);
     const run = api.run();
     if (!run) throw new Error('no run');
-    api.load({ ...run, progress: { ...run.progress, movesUsed: 50 } });
+    const limit = STAGES[0]?.moveLimit ?? 0;
+    api.load({ ...run, progress: { ...run.progress, movesUsed: limit - 10 } });
     expect(api.hud()?.movesValue).toBe(10);
     expect(api.screen().kind).toBe('playing');
   });

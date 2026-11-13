@@ -15,6 +15,8 @@ import {
   runDirections,
   runMove,
   startRun,
+  cornerIndices,
+  spawnInCorner,
   stateFromGrid,
   useActive,
   type GridCell,
@@ -231,10 +233,34 @@ describe('relic effects', () => {
     );
   });
 
-  it('점화 플러그: every stage starts with an extra tile', () => {
-    const run = startRun('run', 5, { relics: ['ignition'] }).run;
-    expect(run.board.cells.some((t) => t?.value === T.igniteValue)).toBe(true);
-    expect(run.progress.bestTile).toBeGreaterThanOrEqual(T.igniteValue);
+  it('점화 플러그: every stage starts with an extra tile in an empty corner', () => {
+    for (let seed = 0; seed < 20; seed++) {
+      const run = startRun('run', seed, { relics: ['ignition'] }).run;
+      const at = run.board.cells.findIndex((t) => t?.value === T.igniteValue);
+      expect(cornerIndices(run.board.size)).toContain(at);
+      expect(run.progress.bestTile).toBeGreaterThanOrEqual(T.igniteValue);
+    }
+  });
+
+  it('spawnInCorner falls back to any free cell when the corners are taken', () => {
+    const full = stateFromGrid([
+      [2, E, E, 2],
+      [E, E, E, E],
+      [E, E, E, E],
+      [2, E, E, 2],
+    ]);
+    const placed = spawnInCorner(full, 'number', 16);
+    const at = placed.state.cells.findIndex((t) => t?.value === 16);
+    expect(at).toBeGreaterThan(0);
+    expect(cornerIndices(4)).not.toContain(at);
+    const walls = new Set([0, 3, 12]);
+    const sealed = spawnInCorner(
+      stateFromGrid([empty(), empty(), empty(), empty()]),
+      'number',
+      16,
+      walls,
+    );
+    expect(sealed.state.cells[15]?.value).toBe(16);
   });
 
   it('지연 장막: boss rules fire less often', () => {

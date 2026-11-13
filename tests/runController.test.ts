@@ -11,15 +11,18 @@ import {
   type RunStep,
   type StartOptions,
 } from '../src/core';
+import { dailySeed } from '../src/game/daily';
 import { RunController, type BoardDisplay, type UiDisplay } from '../src/game/runController';
-import type {
-  BoardMarks,
-  Hint,
-  HudModel,
-  Records,
-  ScreenModel,
-  StageBanner,
+import {
+  EMPTY_RECORDS,
+  type BoardMarks,
+  type Hint,
+  type HudModel,
+  type Records,
+  type ScreenModel,
+  type StageBanner,
 } from '../src/game/runView';
+import { MemoryStorage, SaveStore, type KeyValueStorage } from '../src/save';
 
 const E = 0;
 const empty = (): GridCell[] => [E, E, E, E];
@@ -34,11 +37,29 @@ class FakeBoard implements BoardDisplay {
   steps: RunStep[] = [];
   marks: BoardMarks | null = null;
   clears = 0;
+  /** When true, marks (and the HUD update riding on them) wait for `finish()`, like an animation in flight. */
+  animating = false;
+  private pending: { marks: BoardMarks; onShown?: (() => void) | undefined } | null = null;
   showStep(step: RunStep): void {
+    this.finish();
     this.steps.push(step);
   }
-  setMarks(marks: BoardMarks): void {
+  setMarks(marks: BoardMarks, onShown?: () => void): void {
+    this.finish();
+    if (this.animating && !marks.targeting) {
+      this.pending = { marks, onShown };
+      return;
+    }
     this.marks = marks;
+    onShown?.();
+  }
+  /** The animation ends: waiting marks show and their callback runs. */
+  finish(): void {
+    const p = this.pending;
+    this.pending = null;
+    if (!p) return;
+    this.marks = p.marks;
+    p.onShown?.();
   }
   clear(): void {
     this.clears++;
@@ -54,7 +75,7 @@ class FakeUi implements UiDisplay {
   hud: HudModel | null = null;
   gains: number[] = [];
   hints: (Hint | null)[] = [];
-  banners: StageBanner[] = [];
+  banners: (StageBanner | null)[] = [];
   showScreen(screen: ScreenModel): void {
     this.screens.push(screen);
   }
@@ -67,7 +88,7 @@ class FakeUi implements UiDisplay {
   showHint(hint: Hint | null): void {
     this.hints.push(hint);
   }
-  announceStage(banner: StageBanner): void {
+  announceStage(banner: StageBanner | null): void {
     this.banners.push(banner);
   }
   get screen(): ScreenModel {
@@ -80,18 +101,26 @@ class FakeUi implements UiDisplay {
   }
 }
 
-function setup(records?: Records) {
+const TODAY = '2026-11-13';
+
+function setup(
+  records?: Records,
+  storage: KeyValueStorage = new MemoryStorage(),
+  today: () => string = () => TODAY,
+) {
   const board = new FakeBoard();
   const ui = new FakeUi();
-  const changes: Records[] = [];
+  const store = new SaveStore(storage);
+  if (records) store.setRecords(records);
+  let seeds = 0;
   const controller = new RunController({
     board,
     ui,
-    seed: () => 'ctl',
-    ...(records ? { initialRecords: records } : {}),
-    onRecordsChange: (r) => changes.push(r),
+    store,
+    today,
+    seed: () => `ctl-${seeds++}`,
   });
-  return { board, ui, controller, changes };
+  return { board, ui, controller, store, storage };
 }
 
 /** A run at `stageIndex` (or endless) with an exact board. */
@@ -123,7 +152,14 @@ describe('RunController: menu and start', () => {
     expect(ui.hud?.stageLabel).toBe('1막 1');
     expect(ui.hud?.movesValue).toBe(STAGES[0]?.moveLimit);
     expect(ui.banners.at(-1)?.title).toBe('1막 1');
+    expect(ui.banners.at(-1)?.detail).toBe(`이동 ${STAGES[0]?.moveLimit}번 안에`);
     expect(board.marks).toEqual({ lock: null, bossTarget: null, targeting: null });
+    // First run: a swipe lesson until the first move, which also takes the banner down.
+    expect(ui.hint?.key).toBe('lesson:swipe');
+    const dirs = runDirections(controller.run as RunState);
+    controller.handleDirection(dirs[0] ?? 'left');
+    expect(ui.hint).toBeNull();
+    expect(ui.banners.at(-1)).toBeNull();
   });
 
   it('moves reach the board and the HUD; score pops add up to the score', () => {
@@ -153,7 +189,7 @@ describe('RunController: stage flow', () => {
   const clearable = (): RunState =>
     prepared('run', [[2, 2, E, E], empty(), empty(), empty()], {}, (r) => ({
       ...r,
-      progress: { ...r.progress, score: 999 },
+      progress: { ...r.progress, score: 99999, bestTile: 4096, stonesBroken: 99 },
     }));
 
   it('stage clear → offer → pick → next stage with banner, relic and stone hint', () => {
@@ -175,6 +211,7 @@ describe('RunController: stage flow', () => {
     expect(ui.hud?.relics.map((r) => r.id)).toEqual([pick]);
     expect(ui.banners.at(-1)?.title).toBe('1막 2');
     expect(ui.hint?.key).toBe('hazard:stone');
+    expect(offer.tip).not.toBeNull(); // the very first offer explains relics
     // Picking again does nothing outside an offer.
     expect(controller.chooseRelic(pick)).toBe(false);
   });
@@ -189,7 +226,7 @@ describe('RunController: stage flow', () => {
   });
 
   it('running out of moves shows the failed run summary', () => {
-    const { ui, controller, changes } = setup();
+    const { ui, controller } = setup();
     const limit = STAGES[0]?.moveLimit ?? 0;
     controller.load(
       prepared('run', [[2, E, E, E], empty(), empty(), empty()], {}, (r) => ({
@@ -205,8 +242,8 @@ describe('RunController: stage flow', () => {
     expect(s.reason).toBe('이동 횟수를 모두 썼어요');
     expect(s.summary.reached).toBe('1막 1');
     expect(s.summary.stagesCleared).toBe(0);
-    expect(changes).toHaveLength(0);
-    expect(s.newRecord).toBe(false); // a first run sets records quietly
+    expect(controller.bestRecords).toEqual(EMPTY_RECORDS);
+    expect(s.record).toBeNull(); // a first run sets records quietly
     expect(controller.handleDirection('left')).toBe(false);
   });
 
@@ -218,7 +255,7 @@ describe('RunController: stage flow', () => {
   });
 
   it('clearing the last stage shows victory and sets a record', () => {
-    const { ui, controller, changes } = setup({
+    const { ui, controller, store } = setup({
       runBestStages: 3,
       runBestScore: 100,
       endlessBestScore: 0,
@@ -232,10 +269,10 @@ describe('RunController: stage flow', () => {
     controller.handleDirection('left');
     const s = ui.screen;
     expect(s.kind === 'result' && s.outcome).toBe('victory');
-    expect(s.kind === 'result' && s.newRecord).toBe(true);
+    expect(s.kind === 'result' && s.record).toBe('새 최고 기록!');
     expect(s.kind === 'result' && s.summary.stagesCleared).toBe(STAGES.length);
     expect(controller.bestRecords.runBestStages).toBe(STAGES.length);
-    expect(changes.length).toBeGreaterThan(0);
+    expect(store.records.runBestStages).toBe(STAGES.length);
   });
 
   it('retry starts a fresh run in the same mode; quitting returns to the menu', () => {
@@ -377,7 +414,7 @@ describe('RunController: pause, hints and boss marks', () => {
     expect(controller.resume()).toBe(true);
   });
 
-  it('hints queue up, show once, and dismiss on tap or after a few moves', () => {
+  it('hints queue up, show once, and go away on a tap or the next move', () => {
     const { ui, controller } = setup();
     controller.start('run', 'hints', { stageIndex: 3 });
     expect(ui.hint?.key).toBe('boss:warden');
@@ -388,10 +425,8 @@ describe('RunController: pause, hints and boss marks', () => {
 
     controller.start('run', 'hints2', { stageIndex: 1 });
     expect(ui.hint?.key).toBe('hazard:stone');
-    for (let i = 0; i < 6 && ui.hint; i++) {
-      const dirs = runDirections(controller.run as RunState);
-      controller.handleDirection(dirs[0] ?? 'left');
-    }
+    const dirs = runDirections(controller.run as RunState);
+    controller.handleDirection(dirs[0] ?? 'left');
     expect(ui.hint).toBeNull();
   });
 
@@ -415,6 +450,266 @@ describe('RunController: pause, hints and boss marks', () => {
       })),
     );
     expect(board.marks?.lock).toEqual({ axis: 'row', index: 2, turnsLeft: 2 });
-    expect(ui.hud?.boss?.lockText).toBe('3행 봉쇄 중 · 2턴 남음');
+    // While sealed, the big counter is the time until the line opens, not the next trigger.
+    expect(ui.hud?.boss).toMatchObject({
+      count: 2,
+      countLabel: '봉쇄 해제까지',
+      lockText: '3행 봉쇄 중',
+      imminent: false,
+    });
+  });
+
+  it('the HUD changes when the board marks do, after the move has played', () => {
+    const { board, ui, controller } = setup();
+    controller.load(prepared('run', [[2, 2, E, E], empty(), empty(), empty()]));
+    const before = ui.hud;
+    board.animating = true;
+    controller.handleDirection('left');
+    expect(ui.hud).toBe(before); // still animating: numbers wait with the marks
+    expect(ui.gains).toEqual([]);
+    board.finish();
+    expect(ui.hud?.movesValue).toBe((before?.movesValue ?? 0) - 1);
+    expect(ui.gains).toEqual([4]);
+  });
+});
+
+/** Plays `n` moves with a fixed policy (first available direction in a rotating order). */
+function playMoves(controller: RunController, n: number, offset = 0): void {
+  for (let i = 0; i < n; i++) {
+    const run = controller.run;
+    if (!run || controller.screen !== 'playing') return;
+    const dirs = runDirections(run);
+    if (dirs.length === 0) return;
+    controller.handleDirection(dirs[(i + offset) % dirs.length] ?? 'left');
+  }
+}
+
+describe('RunController: saving and resuming', () => {
+  it('a reload resumes the identical run, and continues exactly like the uninterrupted one', () => {
+    const storage = new MemoryStorage();
+    const a = setup(undefined, storage);
+    a.controller.start('run', 'resume', { relics: ['undo'] });
+    playMoves(a.controller, 25);
+    const saved = structuredClone(a.controller.run);
+
+    // A fresh app on the same storage: the menu offers to continue.
+    const b = setup(undefined, storage);
+    b.controller.showMenu();
+    const menu = b.ui.screen;
+    expect(menu.kind === 'menu' && menu.continues.map((c) => c.slot)).toEqual(['run']);
+    expect(b.controller.continueRun('run')).toBe(true);
+    expect(b.controller.run).toEqual(saved);
+    expect(b.board.last?.boardReplaced).toBe(true);
+    expect(b.ui.hud?.movesValue).toBe(a.ui.hud?.movesValue);
+    expect(b.ui.hud?.score).toBe(a.ui.hud?.score);
+
+    // Same moves from here (RNG included) give the same future, undo included.
+    playMoves(a.controller, 20, 1);
+    playMoves(b.controller, 20, 1);
+    expect(b.controller.run).toEqual(a.controller.run);
+    expect(a.controller.activateRelic('undo')).toBe(b.controller.activateRelic('undo'));
+    expect(b.controller.run).toEqual(a.controller.run);
+  });
+
+  it('saves while on the offer screen and resumes into it', () => {
+    const storage = new MemoryStorage();
+    const a = setup(undefined, storage);
+    a.controller.load(
+      prepared('run', [[2, 2, E, E], empty(), empty(), empty()], {}, (r) => ({
+        ...r,
+        progress: { ...r.progress, score: 99999, bestTile: 4096, stonesBroken: 99 },
+      })),
+    );
+    a.controller.handleDirection('left');
+    expect(a.controller.screen).toBe('offer');
+    const b = setup(undefined, storage);
+    expect(b.controller.continueRun('run')).toBe(true);
+    expect(b.controller.screen).toBe('offer');
+    expect(b.controller.run?.offer).toEqual(a.controller.run?.offer);
+  });
+
+  it('a finished run leaves nothing to continue; quitting mid-run keeps it', () => {
+    const { controller, store } = setup();
+    controller.load(prepared('run', STUCK_AFTER_RIGHT));
+    expect(store.hasRun('run')).toBe(true);
+    controller.handleDirection('right');
+    expect(controller.screen).toBe('result');
+    expect(store.hasRun('run')).toBe(false);
+
+    controller.start('endless', 'keep');
+    playMoves(controller, 3);
+    controller.showMenu();
+    expect(store.hasRun('endless')).toBe(true);
+  });
+
+  it('starting over a saved game asks first', () => {
+    const { ui, controller, store } = setup();
+    controller.start('run', 'first');
+    playMoves(controller, 5);
+    const first = controller.run;
+    controller.showMenu();
+
+    controller.requestNew('run');
+    expect(ui.screen.kind).toBe('confirm');
+    controller.back(); // cancel
+    expect(ui.screen.kind).toBe('menu');
+    expect(store.loadRun('run')?.run).toEqual(first);
+
+    controller.requestNew('run');
+    expect(controller.confirmNew()).toBe(true);
+    expect(controller.screen).toBe('playing');
+    expect(controller.run?.seed).not.toBe(first?.seed);
+    expect(store.loadRun('run')?.run).toEqual(controller.run);
+
+    // No saved endless game: no question.
+    controller.showMenu();
+    controller.requestNew('endless');
+    expect(controller.screen).toBe('playing');
+    expect(controller.slot).toBe('endless');
+  });
+
+  it('records and seen hints survive a reload; "도움말 다시 보기" shows hints again', () => {
+    const storage = new MemoryStorage();
+    const a = setup(undefined, storage);
+    a.controller.load(prepared('run', STUCK_AFTER_RIGHT, { stageIndex: 2 }));
+    a.controller.handleDirection('right');
+    expect(a.store.records.runBestStages).toBe(2);
+    a.controller.start('run', 'seen', { stageIndex: 1 });
+    expect(a.ui.hint?.key).toBe('hazard:stone');
+
+    const b = setup(undefined, storage);
+    expect(b.controller.bestRecords.runBestStages).toBe(2);
+    b.controller.start('run', 'seen', { stageIndex: 1 });
+    expect(b.ui.hint).toBeNull();
+    b.controller.showMenu();
+    b.controller.openSettings();
+    b.controller.resetHints();
+    expect(b.ui.screen).toMatchObject({ kind: 'settings', hintsReset: true });
+    b.controller.start('run', 'seen', { stageIndex: 1 });
+    expect(b.ui.hint?.key).toBe('hazard:stone');
+  });
+
+  it('the relic explanation appears on the first offer only, also after a reload', () => {
+    const storage = new MemoryStorage();
+    const clear = (c: RunController): ScreenModel | null => {
+      c.load(
+        prepared('run', [[2, 2, E, E], empty(), empty(), empty()], {}, (r) => ({
+          ...r,
+          progress: { ...r.progress, score: 99999, bestTile: 4096, stonesBroken: 99 },
+        })),
+      );
+      c.handleDirection('left');
+      return c.screenState;
+    };
+    const first = clear(setup(undefined, storage).controller);
+    expect(first?.kind === 'offer' && first.tip).toBeTruthy();
+    const second = clear(setup(undefined, storage).controller);
+    expect(second).toMatchObject({ kind: 'offer', tip: null });
+  });
+
+  it('an active relic gets a one-line lesson the first time it is owned', () => {
+    const { ui, controller } = setup();
+    controller.start('run', 'act', { stageIndex: 2, relics: ['bomb'] });
+    expect(ui.hint?.key).toBe('hazard:ice');
+    playMoves(controller, 1);
+    expect(ui.hint?.key).toBe('lesson:active');
+  });
+
+  it('a broken storage never breaks the game', () => {
+    const broken: KeyValueStorage = {
+      getItem: () => {
+        throw new Error('SecurityError');
+      },
+      setItem: () => {
+        throw new Error('QuotaExceededError');
+      },
+      removeItem: () => {
+        throw new Error('SecurityError');
+      },
+    };
+    const { ui, controller, store } = setup(undefined, broken);
+    controller.showMenu();
+    controller.start('run', 'broken');
+    playMoves(controller, 10);
+    expect(controller.screen).toBe('playing');
+    expect(store.writable).toBe(false);
+    controller.pause();
+    controller.openSettings();
+    expect(ui.screen).toMatchObject({ kind: 'settings', storageOk: false, back: 'paused' });
+  });
+});
+
+describe('RunController: help and settings sheets', () => {
+  it('open from the menu or the pause screen and return there', () => {
+    const { ui, controller, store } = setup();
+    controller.showMenu();
+    expect(controller.openHelp()).toBe(true);
+    expect(ui.screen).toMatchObject({ kind: 'help', back: 'menu' });
+    controller.closeSheet();
+    expect(ui.screen.kind).toBe('menu');
+
+    controller.start('run', 'sheets');
+    expect(controller.openHelp()).toBe(false); // only from menu / pause
+    controller.pause();
+    controller.openSettings();
+    controller.setSetting('sound', false);
+    expect(ui.screen).toMatchObject({ kind: 'settings', settings: { sound: false } });
+    expect(store.settings.sound).toBe(false);
+    controller.back();
+    expect(ui.screen.kind).toBe('paused');
+    controller.resume();
+    expect(controller.screen).toBe('playing');
+  });
+});
+
+describe('RunController: daily challenge', () => {
+  it('is the same run for everyone on the same date, different on another date', () => {
+    const one = setup();
+    const two = setup();
+    one.controller.startDaily();
+    two.controller.startDaily();
+    expect(one.controller.run?.seed).toBe(dailySeed(TODAY));
+    expect(two.controller.run).toEqual(one.controller.run);
+    expect(one.controller.slot).toBe('daily');
+
+    const other = setup(undefined, new MemoryStorage(), () => '2026-11-14');
+    other.controller.startDaily();
+    expect(other.controller.run?.board.cells).not.toEqual(one.controller.run?.board.cells);
+  });
+
+  it('keeps the best result per date and shows it on the menu; retry replays the same day', () => {
+    const { ui, controller, store } = setup();
+    controller.startDaily();
+    playMoves(controller, 15);
+    const score = controller.run ? controller.run.board.score : 0;
+    expect(store.dailyRecord(TODAY)).toMatchObject({ attempts: 1, bestScore: score });
+    controller.retry();
+    expect(controller.run?.seed).toBe(dailySeed(TODAY));
+    expect(store.dailyRecord(TODAY)?.attempts).toBe(2);
+    expect(store.dailyRecord(TODAY)?.bestScore).toBe(score); // a fresh start does not lower it
+    // A daily run does not touch the normal run records.
+    expect(controller.bestRecords).toEqual(EMPTY_RECORDS);
+    controller.showMenu();
+    const menu = ui.screen;
+    expect(menu.kind === 'menu' && menu.daily).toMatchObject({
+      date: TODAY,
+      label: '11월 13일',
+      attempts: 2,
+    });
+    expect(menu.kind === 'menu' && menu.continues.map((c) => c.slot)).toEqual(['daily']);
+  });
+
+  it("yesterday's unfinished daily is not offered today", () => {
+    const storage = new MemoryStorage();
+    let today = '2026-11-13';
+    const a = setup(undefined, storage, () => today);
+    a.controller.startDaily();
+    playMoves(a.controller, 3);
+    today = '2026-11-14';
+    a.controller.showMenu();
+    const menu = a.ui.screen;
+    expect(menu.kind === 'menu' && menu.continues).toEqual([]);
+    expect(a.controller.continueRun('daily')).toBe(false);
+    expect(a.store.dailyRecord('2026-11-13')?.attempts).toBe(1); // the record stays
   });
 });

@@ -12,6 +12,7 @@
 import {
   maxTileValue,
   slide,
+  spawnInCorner,
   spawnOnRandomEmpty,
   spawnRandomTile,
   type MergeOutcome,
@@ -154,7 +155,8 @@ export class TurnBuilder {
           });
           break;
         case 'placeTile': {
-          const step = spawnOnRandomEmpty(this.board, 'number', effect.value, this.walls());
+          const place = effect.corner ? spawnInCorner : spawnOnRandomEmpty;
+          const step = place(this.board, 'number', effect.value, this.walls());
           this.board = step.state;
           events.push(...step.events);
           this.noteBest();

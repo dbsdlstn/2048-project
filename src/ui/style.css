@@ -252,19 +252,43 @@ ul {
 }
 
 .bar {
+  position: relative;
   height: 6px;
   border-radius: 3px;
   background: rgba(130, 120, 255, 0.16);
   overflow: hidden;
 }
 
+.bar-fill,
+.bar-pace {
+  position: absolute;
+  inset: 0;
+  transform-origin: left center;
+  transform: scaleX(0);
+  transition: transform 260ms ease-out;
+}
+
+/* Where the stage's pace so far would end the bar: faint teal on track, faint rust behind. */
+.bar-pace {
+  background: repeating-linear-gradient(
+    90deg,
+    rgba(45, 226, 230, 0.4) 0 4px,
+    rgba(45, 226, 230, 0.15) 4px 7px
+  );
+}
+
+.bar-pace.behind {
+  background: repeating-linear-gradient(
+    90deg,
+    rgba(255, 138, 61, 0.55) 0 4px,
+    rgba(255, 138, 61, 0.2) 4px 7px
+  );
+}
+
 .bar-fill {
   height: 100%;
   background: linear-gradient(90deg, var(--teal), var(--violet));
   box-shadow: 0 0 8px rgba(45, 226, 230, 0.6);
-  transform-origin: left center;
-  transform: scaleX(0);
-  transition: transform 260ms ease-out;
 }
 
 .goal.done .bar-fill {
@@ -305,6 +329,22 @@ ul {
 .moves.warn .moves-value,
 .moves.warn .moves-label {
   color: var(--danger);
+}
+
+.goal.intro .goal-main,
+.moves.intro {
+  animation: intro 1100ms ease-out 2;
+}
+
+@keyframes intro {
+  0%,
+  100% {
+    box-shadow: 0 0 0 rgba(255, 179, 71, 0);
+  }
+  40% {
+    box-shadow: 0 0 16px rgba(255, 179, 71, 0.75);
+    border-color: var(--amber);
+  }
 }
 
 @keyframes warn {
@@ -349,8 +389,20 @@ ul {
 
 .boss-count {
   flex: none;
+  display: flex;
+  align-items: baseline;
+  gap: 3px;
   font-size: 12px;
   color: var(--muted);
+  white-space: nowrap;
+}
+
+.boss-count small {
+  font-size: 11px;
+}
+
+.boss.sealed .boss-count b {
+  color: var(--danger);
 }
 
 .boss-count b {
@@ -416,7 +468,7 @@ ul {
   gap: 4px;
   padding: 12px 10px;
   text-align: center;
-  background: rgba(8, 8, 18, 0.88);
+  background: rgba(8, 8, 18, 0.9);
   border: 1px solid rgba(255, 179, 71, 0.6);
   border-radius: 12px;
   pointer-events: none;
@@ -424,18 +476,30 @@ ul {
 }
 
 .banner strong {
-  font-size: 24px;
+  font-size: 15px;
   color: var(--amber);
-  text-shadow: 0 0 10px rgba(255, 179, 71, 0.7);
+  letter-spacing: 0.04em;
+}
+
+.banner b {
+  font-size: 22px;
+  font-weight: 900;
+  color: var(--text);
+  text-shadow: 0 0 10px rgba(255, 179, 71, 0.6);
 }
 
 .banner span {
-  font-size: 13px;
+  font-size: 14px;
   color: var(--text);
 }
 
+/* Up for a few seconds, gone at once on the first swipe (.leave). Keep BANNER_MS in sync. */
 .banner.show {
-  animation: banner 1400ms ease-out both;
+  animation: banner 2800ms ease-out both;
+}
+
+.banner.show.leave {
+  animation: banner-leave 160ms ease-out both;
 }
 
 @keyframes banner {
@@ -443,8 +507,8 @@ ul {
     opacity: 0;
     transform: translateY(-40%) scale(0.96);
   }
-  14%,
-  70% {
+  8%,
+  82% {
     opacity: 1;
     transform: translateY(-50%) scale(1);
   }
@@ -454,12 +518,20 @@ ul {
   }
 }
 
+@keyframes banner-leave {
+  from {
+    opacity: 1;
+    transform: translateY(-50%);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-50%) scale(0.98);
+  }
+}
+
 .hint,
 .target-bar,
 .board-msg {
-  position: absolute;
-  left: 6px;
-  right: 6px;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -470,9 +542,10 @@ ul {
   line-height: 1.35;
 }
 
-/* Over the relic tray: fully opaque, same footprint. */
+/* Over the relic tray (and its hint): fully opaque, same footprint. */
 .target-bar,
 .board-msg {
+  position: absolute;
   left: 0;
   right: 0;
   top: 0;
@@ -481,15 +554,18 @@ ul {
   background: #0d0d1e;
 }
 
-/* A hint must not cover cells the player is picking from. */
-.app[data-screen='targeting'] .hint {
-  display: none;
-}
-
+/* The hint takes the relic tray's place below the board while it is up. */
 .hint {
-  top: 6px;
+  flex: 1;
+  min-width: 0;
+  min-height: 44px;
   border: 1px solid rgba(255, 179, 71, 0.7);
   box-shadow: 0 0 12px rgba(255, 179, 71, 0.25);
+}
+
+.tray.has-hint .tray-chips,
+.tray.has-hint .tray-all {
+  display: none;
 }
 
 .hint.show {
@@ -505,6 +581,7 @@ ul {
 .hint strong {
   color: var(--amber);
   margin-right: 6px;
+  white-space: nowrap;
 }
 
 .hint-close {
@@ -774,6 +851,16 @@ button:focus-visible {
   color: var(--muted);
 }
 
+.btn-danger {
+  border-color: var(--danger);
+  background: rgba(255, 77, 109, 0.14);
+}
+
+.btn:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
 .btn-small {
   flex: none;
   padding: 0 14px;
@@ -908,6 +995,28 @@ button:focus-visible {
   );
 }
 
+.mode-card {
+  display: flex;
+  gap: 8px;
+}
+
+.mode-card .mode-btn {
+  flex: 1;
+  min-width: 0;
+}
+
+.mode-new {
+  flex: none;
+  align-self: center;
+  padding: 0 14px;
+}
+
+.menu-tools {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+}
+
 .mode-btn.btn-primary {
   border-color: var(--amber);
   background: rgba(255, 179, 71, 0.12);
@@ -920,6 +1029,100 @@ button:focus-visible {
 .mode-btn span {
   font-size: 13px;
   color: var(--muted);
+}
+
+.sheet-tip {
+  padding: 8px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 179, 71, 0.6);
+  background: rgba(255, 179, 71, 0.08);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.sheet-note {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.sheet-warn {
+  font-size: 13px;
+  color: var(--danger);
+}
+
+.help {
+  text-align: left;
+  gap: 10px;
+}
+
+.help .sheet-title,
+.help > .btn {
+  align-self: center;
+  text-align: center;
+}
+
+.help-section h3 {
+  margin: 0 0 4px;
+  font-size: 14px;
+  color: var(--teal);
+}
+
+.help-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: var(--panel);
+  border: 1px solid var(--panel-edge);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.help-list dt {
+  font-weight: 800;
+  color: var(--amber);
+}
+
+.help-list dt:not(:first-child) {
+  margin-top: 6px;
+}
+
+.help-list dd {
+  margin: 0;
+}
+
+.toggle {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  min-height: 48px;
+  padding: 0 16px;
+  border-radius: 10px;
+  border: 1px solid var(--panel-edge);
+  background: var(--panel);
+  color: var(--text);
+  font: inherit;
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.toggle-state {
+  min-width: 44px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--muted);
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.toggle[aria-checked='true'] .toggle-state {
+  border-color: var(--teal);
+  color: var(--teal);
+  background: rgba(45, 226, 230, 0.12);
 }
 
 .records {
@@ -1117,7 +1320,6 @@ button:focus-visible {
   }
   .sheet.menu .logo,
   .sheet.menu .tagline,
-  .sheet.menu .records,
   .sheet.menu .menu-help {
     grid-column: 1 / -1;
   }

@@ -82,8 +82,8 @@ export type RelicEffect =
   | { readonly kind: 'bonusMoves'; readonly amount: number }
   /** Adds charges to every owned active relic (up to its maximum). */
   | { readonly kind: 'charge'; readonly amount: number }
-  /** Places a number tile on a random empty cell. */
-  | { readonly kind: 'placeTile'; readonly value: number }
+  /** Places a number tile on a random empty cell (an empty corner first, with `corner`). */
+  | { readonly kind: 'placeTile'; readonly value: number; readonly corner?: boolean }
   /** Turns this move's regular spawn into a prism. */
   | { readonly kind: 'spawnPrism' };
 
@@ -256,9 +256,11 @@ const DEFS: readonly RelicDef[] = [
   {
     id: 'ignition',
     name: '점화 플러그',
-    description: `스테이지를 시작할 때 ${T.igniteValue} 타일 하나를 놓는다`,
+    description: `스테이지를 시작할 때 빈 구석 칸에 ${T.igniteValue} 타일 하나를 놓는다`,
     rarity: 'common',
-    onStageStart: () => ({ effects: [{ kind: 'placeTile', value: T.igniteValue }] }),
+    onStageStart: () => ({
+      effects: [{ kind: 'placeTile', value: T.igniteValue, corner: true }],
+    }),
   },
   {
     id: 'delayVeil',

@@ -22,6 +22,7 @@ export class Hud {
   private readonly goalText: HTMLElement;
   private readonly goalCount: HTMLElement;
   private readonly goalBar: HTMLElement;
+  private readonly goalPace: HTMLElement;
   private readonly goal: HTMLElement;
   private readonly moves: HTMLElement;
   private readonly movesLabel: HTMLElement;
@@ -29,6 +30,7 @@ export class Hud {
   private readonly boss: HTMLElement;
   private readonly bossName: HTMLElement;
   private readonly bossCount: HTMLElement;
+  private readonly bossCountLabel: HTMLElement;
   private readonly bossPreview: HTMLElement;
   private readonly bossRule: HTMLElement;
   private readonly actives: HTMLElement;
@@ -52,12 +54,14 @@ export class Hud {
     this.goalText = ref(root, 'goalText', HTMLElement);
     this.goalCount = ref(root, 'goalCount', HTMLElement);
     this.goalBar = ref(root, 'goalBar', HTMLElement);
+    this.goalPace = ref(root, 'goalPace', HTMLElement);
     this.moves = ref(root, 'moves', HTMLElement);
     this.movesLabel = ref(root, 'movesLabel', HTMLElement);
     this.movesValue = ref(root, 'movesValue', HTMLElement);
     this.boss = ref(root, 'boss', HTMLElement);
     this.bossName = ref(root, 'bossName', HTMLElement);
     this.bossCount = ref(root, 'bossCount', HTMLElement);
+    this.bossCountLabel = ref(root, 'bossCountLabel', HTMLElement);
     this.bossPreview = ref(root, 'bossPreview', HTMLElement);
     this.bossRule = ref(root, 'bossRule', HTMLElement);
     this.actives = ref(root, 'actives', HTMLElement);
@@ -84,6 +88,18 @@ export class Hud {
         : `최고 ${formatNumber(hud.goalCurrent)}`;
     this.goalBar.style.transform = `scaleX(${Math.max(0, Math.min(1, hud.goalRatio))})`;
     this.goal.classList.toggle('done', hud.goalDone);
+    // Pace: a faint segment from the fill to where this pace would end the stage.
+    const pace = hud.pace;
+    this.goalPace.hidden = pace === null;
+    if (pace) {
+      this.goalPace.style.transform = `scaleX(${pace.projectedRatio})`;
+      this.goalPace.classList.toggle('behind', !pace.onTrack);
+      this.goalPace.title = pace.label;
+    }
+    this.goal.setAttribute(
+      'aria-label',
+      `${hud.goalText} ${hud.goalCurrent}/${hud.goalTarget}${pace ? ` · ${pace.label}` : ''}`,
+    );
     this.movesLabel.textContent = hud.movesLabel;
     this.movesValue.textContent = String(hud.movesValue);
     this.moves.classList.toggle('warn', hud.movesWarn);
@@ -92,8 +108,10 @@ export class Hud {
     this.boss.hidden = boss === null;
     if (boss) {
       this.bossName.textContent = boss.name;
-      this.bossCount.textContent = String(boss.turnsUntil);
-      this.boss.classList.toggle('imminent', boss.turnsUntil <= 1);
+      this.bossCount.textContent = String(boss.count);
+      this.bossCountLabel.textContent = boss.countLabel;
+      this.boss.classList.toggle('imminent', boss.imminent);
+      this.boss.classList.toggle('sealed', boss.lockText !== null);
       this.bossPreview.textContent = boss.lockText ?? boss.preview;
       this.bossRule.textContent = boss.rule;
     }
@@ -108,6 +126,12 @@ export class Hud {
       pop.remove();
     });
     this.gains.append(pop);
+  }
+
+  /** Draws the eye to goal and moves when a stage begins. */
+  introduce(): void {
+    replayClass(this.goal, 'intro');
+    replayClass(this.moves, 'intro');
   }
 
   /** Flashes a relic's chip / button (a relic just did something). */

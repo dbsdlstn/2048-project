@@ -59,8 +59,8 @@ export class BoardRenderer {
   /** Cues not fired yet, in time order. */
   private pendingCues: EventCue[] = [];
   private marks: BoardMarks = NO_MARKS;
-  /** Marks waiting for the current animation to end before they show. */
-  private pendingMarks: { marks: BoardMarks; at: number } | null = null;
+  /** Marks waiting for the current animation to end before they show (with the HUD update). */
+  private pendingMarks: { marks: BoardMarks; at: number; onShown?: () => void } | null = null;
   private background: HTMLCanvasElement | OffscreenCanvas | null = null;
   private layout: BoardLayout;
   private pixelRatio = 1;
@@ -111,16 +111,20 @@ export class BoardRenderer {
 
   /**
    * Shows marks once the animation in flight has finished (so a sealed line
-   * appears after the move that sealed it, not before). Immediate when idle.
+   * appears after the move that sealed it, not before). Immediate when idle,
+   * and for targeting. `onShown` runs at the moment the marks appear, which is
+   * how the HUD numbers change together with the board.
    */
-  setMarks(marks: BoardMarks): void {
+  setMarks(marks: BoardMarks, onShown?: () => void): void {
     const now = this.clock.now();
     const at = Math.max(this.view.endTime, this.pendingCues.at(-1)?.at ?? -Infinity);
+    // A newer state replaces a waiting one; its callback still runs, so no HUD update is lost.
+    this.applyPendingMarks(true);
     if (at <= now || marks.targeting || this.marks.targeting) {
       this.marks = marks;
-      this.pendingMarks = null;
+      onShown?.();
     } else {
-      this.pendingMarks = { marks, at };
+      this.pendingMarks = onShown ? { marks, at, onShown } : { marks, at };
     }
     this.loop.invalidate();
   }
@@ -245,9 +249,11 @@ export class BoardRenderer {
   }
 
   private applyPendingMarks(force: boolean, now = this.clock.now()): void {
-    if (this.pendingMarks && (force || this.pendingMarks.at <= now)) {
-      this.marks = this.pendingMarks.marks;
+    const pending = this.pendingMarks;
+    if (pending && (force || pending.at <= now)) {
+      this.marks = pending.marks;
       this.pendingMarks = null;
+      pending.onShown?.();
     }
   }
 

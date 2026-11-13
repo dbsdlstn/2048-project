@@ -1,19 +1,32 @@
 /**
- * Full-screen DOM overlays: main menu, relic offer, pause (with the owned
- * relic list) and the run summary. Each builder turns a `ScreenModel` into
- * fresh DOM; the game screen swaps them in and out.
+ * Full-screen DOM overlays: main menu, help, settings, the "discard saved
+ * game?" question, relic offer, pause (with the owned relic list) and the run
+ * summary. Each builder turns a `ScreenModel` into fresh DOM; the game screen
+ * swaps them in and out.
  */
-import type { RelicId, RunMode } from '../core';
+import type { RelicId } from '../core';
 import type { HudModel, OfferCard, Records, ScreenModel } from '../game/runView';
+import type { RunSlot, Settings } from '../save/store';
 import { button, el, formatNumber } from './dom';
 
 export interface ScreenHandlers {
-  readonly onStart: (mode: RunMode) => void;
+  /** "New game" for a slot (the controller asks first if that discards a save). */
+  readonly onNew: (slot: RunSlot) => void;
+  readonly onContinue: (slot: RunSlot) => void;
+  readonly onConfirmNew: () => void;
+  /** Closes help / settings / the confirmation. */
+  readonly onCloseSheet: () => void;
+  readonly onOpenHelp: () => void;
+  readonly onOpenSettings: () => void;
+  readonly onSetting: (key: keyof Settings, value: boolean) => void;
+  readonly onResetHints: () => void;
   readonly onChooseRelic: (id: RelicId | null) => void;
   readonly onResume: () => void;
   readonly onQuit: () => void;
   readonly onRetry: () => void;
 }
+
+type Model<K extends ScreenModel['kind']> = Extract<ScreenModel, { kind: K }>;
 
 function logo(): HTMLElement {
   const h = el('h1', 'logo', 'NEON');
@@ -39,30 +52,149 @@ function records(r: Records): HTMLElement {
   return box;
 }
 
-export function menuScreen(r: Records, h: ScreenHandlers): HTMLElement {
-  const wrap = el('div', 'sheet menu');
-  const runBtn = button('mode-btn btn-primary', '', () => {
-    h.onStart('run');
+/**
+ * One mode on the menu: a big button that starts it, or, with a saved game,
+ * a big "이어하기" button plus a small "새로" one.
+ */
+function modeCard(
+  slot: RunSlot,
+  name: string,
+  blurb: string,
+  saved: string | null,
+  primary: boolean,
+  h: ScreenHandlers,
+): HTMLElement {
+  const card = el('div', 'mode-card');
+  card.dataset.slot = slot;
+  const main = button(`mode-btn${primary ? ' btn-primary' : ''}`, '', () => {
+    if (saved !== null) h.onContinue(slot);
+    else h.onNew(slot);
   });
-  runBtn.append(
-    el('strong', '', '런 모드'),
-    el('span', '', '12 스테이지 · 보스 3 · 유물을 모아 균열을 닫으세요'),
+  main.append(
+    el('strong', '', saved !== null ? `이어하기 · ${name}` : name),
+    el('span', '', saved ?? blurb),
   );
-  const endlessBtn = button('mode-btn', '', () => {
-    h.onStart('endless');
-  });
-  endlessBtn.append(
-    el('strong', '', '무한 모드'),
-    el('span', '', '막힐 때까지 · 큰 타일마다 유물'),
+  card.append(main);
+  if (saved !== null) {
+    const fresh = button('btn btn-quiet mode-new', '새로', () => {
+      h.onNew(slot);
+    });
+    fresh.setAttribute('aria-label', `${name} 새로 시작`);
+    card.append(fresh);
+  }
+  return card;
+}
+
+export function menuScreen(model: Model<'menu'>, h: ScreenHandlers): HTMLElement {
+  const wrap = el('div', 'sheet menu');
+  const saved = (slot: RunSlot): string | null =>
+    model.continues.find((c) => c.slot === slot)?.label ?? null;
+  const d = model.daily;
+  const dailyBlurb = d.best ? `오늘 최고 ${d.best}` : '오늘의 시드로 모두가 같은 런';
+  const tools = el('div', 'menu-tools');
+  tools.append(
+    button('btn btn-quiet', '게임 방법', () => {
+      h.onOpenHelp();
+    }),
+    button('btn btn-quiet', '설정', () => {
+      h.onOpenSettings();
+    }),
   );
   wrap.append(
     logo(),
     el('p', 'tagline', '합쳐서 균열을 닫는 로그라이크 퍼즐'),
-    runBtn,
-    endlessBtn,
-    records(r),
-    el('p', 'menu-help', '밀어서 같은 숫자를 합치세요 · 방향키/WASD · Esc 일시정지'),
+    modeCard(
+      'run',
+      '런 모드',
+      '12 스테이지 · 보스 3 · 유물을 모아 균열을 닫으세요',
+      saved('run'),
+      true,
+      h,
+    ),
+    modeCard('daily', `오늘의 도전 · ${d.label}`, dailyBlurb, saved('daily'), false, h),
+    modeCard('endless', '무한 모드', '막힐 때까지 · 큰 타일마다 유물', saved('endless'), false, h),
+    records(model.records),
+    tools,
+    el('p', 'menu-help', '방향키/WASD로도 움직여요 · Esc 일시정지'),
   );
+  return wrap;
+}
+
+export function helpScreen(model: Model<'help'>, h: ScreenHandlers): HTMLElement {
+  const wrap = el('div', 'sheet help');
+  wrap.append(el('h2', 'sheet-title', '게임 방법'));
+  for (const section of model.sections) {
+    const box = el('section', 'help-section');
+    const list = el('dl', 'help-list');
+    for (const item of section.items) list.append(el('dt', '', item.name), el('dd', '', item.text));
+    box.append(el('h3', '', section.title), list);
+    wrap.append(box);
+  }
+  wrap.append(
+    button('btn btn-primary', '닫기', () => {
+      h.onCloseSheet();
+    }),
+  );
+  return wrap;
+}
+
+function toggle(
+  label: string,
+  key: keyof Settings,
+  value: boolean,
+  h: ScreenHandlers,
+): HTMLButtonElement {
+  const b = button('toggle', '', () => {
+    h.onSetting(key, !value);
+  });
+  b.setAttribute('role', 'switch');
+  b.setAttribute('aria-checked', String(value));
+  b.append(el('span', 'toggle-label', label), el('span', 'toggle-state', value ? '켬' : '끔'));
+  return b;
+}
+
+export function settingsScreen(model: Model<'settings'>, h: ScreenHandlers): HTMLElement {
+  const wrap = el('div', 'sheet settings');
+  const reset = button(
+    'btn',
+    model.hintsReset ? '도움말을 다시 보여 줄게요' : '도움말 다시 보기',
+    () => {
+      h.onResetHints();
+    },
+  );
+  reset.disabled = model.hintsReset;
+  wrap.append(
+    el('h2', 'sheet-title', '설정'),
+    toggle('효과음', 'sound', model.settings.sound, h),
+    toggle('진동', 'haptics', model.settings.haptics, h),
+    el('p', 'sheet-note', '효과음과 진동은 다음 업데이트에서 들어와요'),
+    reset,
+  );
+  if (!model.storageOk) {
+    wrap.append(
+      el('p', 'sheet-warn', '이 브라우저에서는 저장이 안 돼요. 닫으면 기록과 진행이 사라져요'),
+    );
+  }
+  wrap.append(
+    button('btn btn-primary', '닫기', () => {
+      h.onCloseSheet();
+    }),
+  );
+  return wrap;
+}
+
+export function confirmScreen(model: Model<'confirm'>, h: ScreenHandlers): HTMLElement {
+  const wrap = el('div', 'sheet confirm');
+  const actions = el('div', 'sheet-actions');
+  actions.append(
+    button('btn btn-danger', '새로 시작', () => {
+      h.onConfirmNew();
+    }),
+    button('btn', '취소', () => {
+      h.onCloseSheet();
+    }),
+  );
+  wrap.append(el('h2', 'sheet-title', model.title), el('p', 'sheet-sub', model.text), actions);
   return wrap;
 }
 
@@ -78,16 +210,13 @@ function offerCard(card: OfferCard, h: ScreenHandlers): HTMLButtonElement {
   return b;
 }
 
-export function offerScreen(
-  model: Extract<ScreenModel, { kind: 'offer' }>,
-  h: ScreenHandlers,
-): HTMLElement {
+export function offerScreen(model: Model<'offer'>, h: ScreenHandlers): HTMLElement {
   const wrap = el('div', 'sheet offer');
   const cards = el('div', 'offer-cards');
   cards.append(...model.cards.map((c) => offerCard(c, h)));
+  wrap.append(el('h2', 'sheet-title', model.title), el('p', 'sheet-sub', model.subtitle));
+  if (model.tip) wrap.append(el('p', 'sheet-tip', model.tip));
   wrap.append(
-    el('h2', 'sheet-title', model.title),
-    el('p', 'sheet-sub', model.subtitle),
     cards,
     button('btn btn-quiet', model.cards.length > 0 ? '건너뛰기' : '계속하기', () => {
       h.onChooseRelic(null);
@@ -122,20 +251,28 @@ export function pauseScreen(hud: HudModel | null, h: ScreenHandlers): HTMLElemen
       h.onQuit();
     }),
   );
+  const tools = el('div', 'sheet-actions');
+  tools.append(
+    button('btn btn-quiet', '게임 방법', () => {
+      h.onOpenHelp();
+    }),
+    button('btn btn-quiet', '설정', () => {
+      h.onOpenSettings();
+    }),
+  );
   const head = hud ? `${hud.stageLabel} · ${hud.goalText}` : '';
   wrap.append(
     el('h2', 'sheet-title', '일시정지'),
     el('p', 'sheet-sub', head),
     relicList(hud),
     actions,
+    tools,
+    el('p', 'sheet-note', '메뉴로 나가도 진행은 저장돼요'),
   );
   return wrap;
 }
 
-export function resultScreen(
-  model: Extract<ScreenModel, { kind: 'result' }>,
-  h: ScreenHandlers,
-): HTMLElement {
+export function resultScreen(model: Model<'result'>, h: ScreenHandlers): HTMLElement {
   const s = model.summary;
   const wrap = el('div', `sheet result result-${model.outcome}`);
   const stats = el('dl', 'records');
@@ -160,7 +297,7 @@ export function resultScreen(
     }),
   );
   wrap.append(el('h2', 'sheet-title', model.title), el('p', 'sheet-sub', model.reason));
-  if (model.newRecord) wrap.append(el('p', 'new-record', '새 최고 기록!'));
+  if (model.record) wrap.append(el('p', 'new-record', model.record));
   wrap.append(stats, actions);
   return wrap;
 }

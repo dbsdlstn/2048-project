@@ -54,7 +54,7 @@ describe('run mode flow', () => {
   it('clearing the goal ends the stage with an offer of 3 relics', () => {
     let run = startRun('run', 'clear').run;
     run = withBoard(run, [[2, 2, E, E], empty(), empty(), empty()]);
-    run = { ...run, progress: { ...run.progress, score: 999 } };
+    run = { ...run, progress: { ...run.progress, score: 99999, bestTile: 4096, stonesBroken: 99 } };
     const step = runMove(run, 'left');
     expect(step.run.status).toBe('offer');
     expect(step.run.offer).toHaveLength(3);
@@ -67,7 +67,7 @@ describe('run mode flow', () => {
   it('choosing a relic starts the next stage on a fresh board; the score is banked', () => {
     let run = startRun('run', 'choose').run;
     run = withBoard(run, [[2, 2, E, E], empty(), empty(), empty()]);
-    run = { ...run, progress: { ...run.progress, score: 999 } };
+    run = { ...run, progress: { ...run.progress, score: 99999, bestTile: 4096, stonesBroken: 99 } };
     const offered = runMove(run, 'left').run;
     expect(chooseRelic(offered, 'delayVeil').changed).toBe(offered.offer.includes('delayVeil'));
     const pick = offered.offer[0];
@@ -85,7 +85,7 @@ describe('run mode flow', () => {
   it('a stage can be skipped without a relic (null pick)', () => {
     let run = startRun('run', 'skip').run;
     run = withBoard(run, [[2, 2, E, E], empty(), empty(), empty()]);
-    run = { ...run, progress: { ...run.progress, score: 999 } };
+    run = { ...run, progress: { ...run.progress, score: 99999, bestTile: 4096, stonesBroken: 99 } };
     const next = chooseRelic(runMove(run, 'left').run, null);
     expect(next.run.relics).toEqual([]);
     expect(next.run.stageIndex).toBe(1);

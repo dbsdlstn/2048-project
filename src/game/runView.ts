@@ -32,8 +32,13 @@ import {
   type TurnEvent,
 } from '../core';
 import type { BoardMarks } from '../render/marks';
+import type { DailyRecord, RunSlot, SavedRun, Settings } from '../save/store';
+import { dailyLabel } from './daily';
 
 export type { BoardMarks } from '../render/marks';
+
+const numberFormat = new Intl.NumberFormat('ko-KR');
+const fmt = (n: number): string => numberFormat.format(n);
 
 // ------------------------------------------------------------------ labels
 
@@ -98,8 +103,16 @@ export interface BossInfo {
   readonly turnsUntil: number;
   /** What the next trigger does, as far as it is computable. */
   readonly preview: string;
-  /** A sealed line right now, e.g. "2행 봉쇄 중 · 1턴 남음". */
+  /** A sealed line right now, e.g. "2행 봉쇄 중". */
   readonly lockText: string | null;
+  /**
+   * The big counter: moves until the sealed line opens while one is sealed,
+   * else moves until the next trigger. `countLabel` says which.
+   */
+  readonly count: number;
+  readonly countLabel: string;
+  /** The rule fires on the next move (the panel glows). */
+  readonly imminent: boolean;
 }
 
 export interface HudModel {
@@ -112,6 +125,8 @@ export interface HudModel {
   /** 0..1 */
   readonly goalRatio: number;
   readonly goalDone: boolean;
+  /** Score goals: where the bar would end at the stage's pace so far (null early on / other goals). */
+  readonly pace: Pace | null;
   /** "남은 이동" (run) or "이동" (endless). */
   readonly movesLabel: string;
   readonly movesValue: number;
@@ -127,8 +142,37 @@ export interface HudModel {
 /** Moves left at or below which the HUD warns. */
 export const LOW_MOVES = 5;
 
-function lockText(axis: LineAxis, index: number, turnsLeft: number): string {
-  return `${index + 1}${axis === 'row' ? '행' : '열'} 봉쇄 중 · ${turnsLeft}턴 남음`;
+export interface Pace {
+  /** Projected end of the bar, 0..1 of the goal (capped at 1). */
+  readonly projectedRatio: number;
+  /** Whether the projection reaches the goal. */
+  readonly onTrack: boolean;
+  /** Screen-reader / tooltip text, e.g. "지금 속도면 약 340점". */
+  readonly label: string;
+}
+
+/** Moves of a stage before the pace projection shows (too noisy before). */
+export const PACE_FROM_MOVE = 4;
+
+/**
+ * Score goal pace: the stage's points per move so far, carried over the moves
+ * left. Score per move grows as tiles get bigger, so this errs on the safe side.
+ */
+export function scorePace(run: RunState): Pace | null {
+  const spec = currentStage(run);
+  if (spec?.goal.type !== 'score' || run.status !== 'playing') return null;
+  const { score, movesUsed } = run.progress;
+  if (movesUsed < PACE_FROM_MOVE || score >= spec.goal.target) return null;
+  const projected = Math.round(score + (score / movesUsed) * (movesLeft(run) ?? 0));
+  return {
+    projectedRatio: Math.min(1, projected / spec.goal.target),
+    onTrack: projected >= spec.goal.target,
+    label: `지금 속도면 약 ${projected}점`,
+  };
+}
+
+function lockText(axis: LineAxis, index: number): string {
+  return `${index + 1}${axis === 'row' ? '행' : '열'} 봉쇄 중`;
 }
 
 export function bossInfo(run: RunState): BossInfo | null {
@@ -150,13 +194,17 @@ export function bossInfo(run: RunState): BossInfo | null {
       text = '다음 발동: 보드 섞기 + 돌';
       break;
   }
+  const lock = boss.lock;
   return {
     id: boss.id,
     name: def.name,
     rule: def.description,
     turnsUntil: boss.turnsUntil,
     preview: text,
-    lockText: boss.lock ? lockText(boss.lock.axis, boss.lock.index, boss.lock.turnsLeft) : null,
+    lockText: lock ? lockText(lock.axis, lock.index) : null,
+    count: lock ? lock.turnsLeft : boss.turnsUntil,
+    countLabel: lock ? '봉쇄 해제까지' : '발동까지',
+    imminent: !lock && boss.turnsUntil <= 1,
   };
 }
 
@@ -203,6 +251,7 @@ export function hudModel(run: RunState): HudModel {
       goalTarget: goal.target,
       goalRatio: goal.target > 0 ? goal.current / goal.target : 1,
       goalDone: goal.done,
+      pace: scorePace(run),
       movesLabel: '남은 이동',
       movesValue: left,
       movesWarn: run.status === 'playing' && left <= Math.max(LOW_MOVES, Math.ceil(limit * 0.08)),
@@ -222,6 +271,7 @@ export function hudModel(run: RunState): HudModel {
     // Tiles double, so progress is measured in steps of the exponent.
     goalRatio: max > 0 ? Math.min(1, Math.log2(max) / Math.log2(run.nextOfferTile)) : 0,
     goalDone: false,
+    pace: null,
     movesLabel: '이동',
     movesValue: run.board.turn,
     movesWarn: false,
@@ -302,8 +352,61 @@ export const EMPTY_RECORDS: Records = {
   endlessBestTile: 0,
 };
 
+/** A saved run the menu offers to continue. */
+export interface ContinueInfo {
+  readonly slot: RunSlot;
+  /** e.g. "1막 3 · 1,234점" */
+  readonly label: string;
+}
+
+/** The daily challenge entry on the menu. */
+export interface DailyInfo {
+  /** `YYYY-MM-DD` */
+  readonly date: string;
+  /** "11월 13일" */
+  readonly label: string;
+  /** Today's best, e.g. "2스테이지 · 1,234점", or null before the first attempt. */
+  readonly best: string | null;
+  readonly attempts: number;
+}
+
+/** Where a help / settings sheet returns to. */
+export type SheetOrigin = 'menu' | 'paused';
+
+export interface HelpItem {
+  readonly name: string;
+  readonly text: string;
+}
+
+export interface HelpSection {
+  readonly title: string;
+  readonly items: readonly HelpItem[];
+}
+
 export type ScreenModel =
-  | { readonly kind: 'menu'; readonly records: Records }
+  | {
+      readonly kind: 'menu';
+      readonly records: Records;
+      readonly continues: readonly ContinueInfo[];
+      readonly daily: DailyInfo;
+    }
+  | { readonly kind: 'help'; readonly sections: readonly HelpSection[]; readonly back: SheetOrigin }
+  | {
+      readonly kind: 'settings';
+      readonly settings: Settings;
+      readonly back: SheetOrigin;
+      /** "도움말 다시 보기" was just pressed (the button confirms it). */
+      readonly hintsReset: boolean;
+      /** False when the browser refused to save (private mode, full storage). */
+      readonly storageOk: boolean;
+    }
+  | {
+      /** Starting a new game would discard the saved one in `slot`. */
+      readonly kind: 'confirm';
+      readonly slot: RunSlot;
+      readonly title: string;
+      readonly text: string;
+    }
   | { readonly kind: 'playing' }
   | {
       readonly kind: 'targeting';
@@ -318,6 +421,8 @@ export type ScreenModel =
       readonly title: string;
       readonly subtitle: string;
       readonly cards: readonly OfferCard[];
+      /** First offer of a player's life: what relics are (shown once). */
+      readonly tip: string | null;
     }
   | {
       readonly kind: 'result';
@@ -325,7 +430,8 @@ export type ScreenModel =
       readonly title: string;
       readonly reason: string;
       readonly summary: RunSummary;
-      readonly newRecord: boolean;
+      /** "새 최고 기록!" / "오늘의 최고 기록!", or null. */
+      readonly record: string | null;
     };
 
 export type ScreenKind = ScreenModel['kind'];
@@ -344,13 +450,14 @@ export function offerCards(run: RunState): OfferCard[] {
   });
 }
 
-export function offerScreen(run: RunState): ScreenModel {
+export function offerScreen(run: RunState, tip: string | null = null): ScreenModel {
   if (run.mode === 'run') {
     return {
       kind: 'offer',
       title: `${stageTitle(run.stageIndex)} 클리어`,
       subtitle: run.offer.length > 0 ? '유물 하나를 고르세요' : '지금 고를 수 있는 유물이 없어요',
       cards: offerCards(run),
+      tip,
     };
   }
   return {
@@ -358,6 +465,7 @@ export function offerScreen(run: RunState): ScreenModel {
     title: `${maxTileValue(run.board)} 타일 도달`,
     subtitle: '유물 하나를 고르세요',
     cards: offerCards(run),
+    tip,
   };
 }
 
@@ -387,7 +495,7 @@ export function runSummary(run: RunState): RunSummary {
   };
 }
 
-export function resultScreen(run: RunState, newRecord: boolean): ScreenModel {
+export function resultScreen(run: RunState, record: string | null): ScreenModel {
   const summary = runSummary(run);
   if (run.status === 'victory') {
     return {
@@ -396,7 +504,7 @@ export function resultScreen(run: RunState, newRecord: boolean): ScreenModel {
       title: '균열 봉인 완료',
       reason: `${STAGES.length}개 스테이지를 모두 클리어했어요`,
       summary,
-      newRecord,
+      record,
     };
   }
   const reason =
@@ -407,7 +515,7 @@ export function resultScreen(run: RunState, newRecord: boolean): ScreenModel {
     title: run.mode === 'run' ? '런 실패' : '게임 종료',
     reason,
     summary,
-    newRecord,
+    record,
   };
 }
 
@@ -432,6 +540,43 @@ export function updateRecords(records: Records, run: RunState): Records {
   };
 }
 
+/** Stages cleared in a run-mode run so far. */
+export function stagesCleared(run: RunState): number {
+  return run.status === 'victory' ? STAGES.length : run.stageIndex;
+}
+
+/** Menu label of a saved run: "1막 3 · 1,234점" or "512 타일 · 3,456점". */
+export function savedRunLabel(saved: SavedRun): string {
+  const run = saved.run;
+  const where = run.mode === 'run' ? stageTitle(run.stageIndex) : `${maxTileValue(run.board)} 타일`;
+  return `${where} · ${fmt(totalScore(run))}점`;
+}
+
+export function dailyInfo(date: string, record: DailyRecord | null): DailyInfo {
+  const best =
+    record && record.attempts > 0 && (record.bestScore > 0 || record.bestStages > 0)
+      ? record.won
+        ? `클리어 · ${fmt(record.bestScore)}점`
+        : `${record.bestStages}스테이지 · ${fmt(record.bestScore)}점`
+      : null;
+  return { date, label: dailyLabel(date), best, attempts: record?.attempts ?? 0 };
+}
+
+const SLOT_NAME: Readonly<Record<RunSlot, string>> = {
+  run: '런',
+  endless: '무한 모드',
+  daily: '오늘의 도전',
+};
+
+export function confirmNewScreen(slot: RunSlot): ScreenModel {
+  return {
+    kind: 'confirm',
+    slot,
+    title: '새로 시작할까요?',
+    text: `진행 중이던 ${SLOT_NAME[slot]} 판은 지워져요`,
+  };
+}
+
 export function targetingPrompt(relic: RelicId): string {
   const effect = RELICS[relic].active?.effect;
   return effect === 'freeze'
@@ -442,11 +587,30 @@ export function targetingPrompt(relic: RelicId): string {
 // ------------------------------------------------------------------ hints and banners
 
 export interface Hint {
-  /** Stable key; each hint is shown once (stage 4 persists the seen set). */
+  /** Stable key; each hint is shown once (the seen set is saved). */
   readonly key: string;
   readonly title: string;
   readonly text: string;
 }
+
+/** First-run lessons that are not about a hazard or boss. Shared with the help sheet. */
+export const LESSONS = {
+  swipe: {
+    key: 'lesson:swipe',
+    title: '밀어서 합치기',
+    text: '화면 어디서나 밀면 타일이 움직이고, 같은 수끼리 합쳐져요',
+  },
+  activeRelic: {
+    key: 'lesson:active',
+    title: '사용 유물',
+    text: '아래 버튼으로 직접 써요. 스테이지가 시작할 때마다 충전돼요',
+  },
+  offer: {
+    key: 'lesson:offer',
+    title: '유물',
+    text: "고른 유물은 런이 끝날 때까지 유지돼요. '사용' 표시는 직접 눌러 쓰는 유물이에요",
+  },
+} as const satisfies Record<string, Hint>;
 
 export function hazardHint(kind: HazardKind): Hint {
   const info = HAZARD_INFO[kind];
@@ -458,12 +622,22 @@ export function bossHint(id: BossId): Hint {
   return { key: `boss:${id}`, title: `보스: ${def.name}`, text: def.description };
 }
 
-/** Hints due when a stage begins: its new hazard and its boss. */
+/** Hints due when a stage begins: how to move (first stage only), its new hazard and its boss. */
 export function stageStartHints(run: RunState): Hint[] {
   const spec = currentStage(run);
   const out: Hint[] = [];
+  if (run.stageIndex === 0 && run.progress.movesUsed === 0) out.push(LESSONS.swipe);
   if (spec?.introduces) out.push(hazardHint(spec.introduces));
   if (spec?.boss) out.push(bossHint(spec.boss));
+  return out;
+}
+
+/** Hints due after any step: hazards that showed up (endless ramps them in), owned active relics. */
+export function stepHints(run: RunState, events: readonly TurnEvent[]): Hint[] {
+  const out = hazardsInEvents(events).map(hazardHint);
+  if (run.status === 'playing' && run.relics.some((r) => RELICS[r.id].active)) {
+    out.push(LESSONS.activeRelic);
+  }
   return out;
 }
 
@@ -480,18 +654,90 @@ export function hazardsInEvents(events: readonly TurnEvent[]): HazardKind[] {
 
 export interface StageBanner {
   readonly title: string;
+  /** The goal, large: "64 타일 만들기". */
+  readonly goal: string;
+  /** Move limit and boss: "이동 65번 안에 · 보스 봉쇄자". */
   readonly detail: string;
 }
 
 export function stageBanner(run: RunState): StageBanner {
   const spec = currentStage(run);
   if (run.mode === 'endless' || !spec) {
-    return { title: '무한 모드', detail: '움직일 수 없을 때까지 · 큰 타일마다 유물' };
+    return { title: '무한 모드', goal: '움직일 수 없을 때까지', detail: '큰 타일마다 유물' };
   }
   const limit = moveLimit(run) ?? spec.moveLimit;
   const boss = spec.boss ? ` · 보스 ${BOSSES[spec.boss].name}` : '';
   return {
     title: stageTitle(run.stageIndex),
-    detail: `${describeGoal(spec.goal)} · 이동 ${limit}${boss}`,
+    goal: describeGoal(spec.goal),
+    detail: `이동 ${limit}번 안에${boss}`,
   };
+}
+
+// ------------------------------------------------------------------ help sheet
+
+/**
+ * The "게임 방법" sheet. Built from the same sources as the in-game hints
+ * (`HAZARD_INFO`, `BOSSES`, `LESSONS`, the tuning numbers), so the two cannot drift.
+ */
+export function helpSections(): HelpSection[] {
+  const acts = Math.ceil(STAGES.length / STAGES_PER_ACT);
+  return [
+    {
+      title: '기본',
+      items: [
+        { name: LESSONS.swipe.title, text: `${LESSONS.swipe.text}. 밀 때마다 2나 4가 하나 나와요` },
+        {
+          name: '목표',
+          text: '스테이지마다 목표(점수, 타일, 돌 부수기)를 이동 횟수 안에 채우면 클리어. 이동을 다 쓰거나 더 움직일 수 없으면 런이 끝나요',
+        },
+        {
+          name: '런',
+          text: `${acts}막 × ${STAGES_PER_ACT}스테이지, 막의 마지막은 보스예요. 스테이지마다 보드는 새로 시작하고 유물과 점수는 이어져요`,
+        },
+        {
+          name: '예상 막대',
+          text: '점수 목표의 옅은 막대는 지금 속도로 남은 이동을 다 썼을 때의 예상 점수예요',
+        },
+      ],
+    },
+    {
+      title: '방해 타일',
+      items: (Object.keys(HAZARD_INFO) as HazardKind[]).map((k) => ({
+        name: HAZARD_INFO[k].name,
+        text: HAZARD_INFO[k].description,
+      })),
+    },
+    {
+      title: '보스',
+      items: (Object.keys(BOSSES) as BossId[]).map((id) => ({
+        name: BOSSES[id].name,
+        text: BOSSES[id].description,
+      })),
+    },
+    {
+      title: '유물',
+      items: [
+        { name: LESSONS.offer.title, text: LESSONS.offer.text },
+        { name: LESSONS.activeRelic.title, text: LESSONS.activeRelic.text },
+        {
+          name: '희귀도',
+          text: `${RARITY_LABEL.common} · ${RARITY_LABEL.uncommon} · ${RARITY_LABEL.rare} 순으로 드물게 나와요`,
+        },
+      ],
+    },
+    {
+      title: '모드',
+      items: [
+        {
+          name: '무한 모드',
+          text: '움직일 수 없을 때까지. 가장 큰 타일이 64, 128…에 닿을 때마다 유물을 골라요',
+        },
+        {
+          name: '오늘의 도전',
+          text: '날짜로 정해진 런. 그날은 모두가 같은 보드와 첫 유물로 시작하고, 하루 최고 기록이 남아요',
+        },
+      ],
+    },
+  ];
 }

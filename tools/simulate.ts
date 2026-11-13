@@ -1,18 +1,24 @@
 /// <reference types="node" />
 /**
  * Balance bot simulator: plays the run mode headlessly with a few simple bots
- * over many seeds and prints per-stage clear rates, moves used and the effect
- * of each relic on the win rate. The core is pure, so this is just a loop.
+ * over many seeds and prints per-stage clear rates, moves used, why stages
+ * were lost (out of moves vs stuck) and the effect of each relic on the win
+ * rate. The core is pure, so this is just a loop.
  *
- *   npm run sim                 # 300 runs per bot
- *   npm run sim -- --runs 1000  # more seeds
+ *   npm run sim                          # 300 runs per bot
+ *   npm run sim -- --runs 1000           # more seeds
+ *   npm run sim -- --bots corner,random  # only some bots (faster while tuning)
  */
+import { pathToFileURL } from 'node:url';
 import {
   RELICS,
   RELIC_IDS,
   STAGES,
+  DIRECTIONS,
   breakStones,
   chooseRelic,
+  emptyCellIndices,
+  placeTile,
   createRng,
   lockedCells,
   nextInt,
@@ -32,7 +38,7 @@ import {
 
 // ---------------------------------------------------------------- bots
 
-interface Bot {
+export interface Bot {
   readonly name: string;
   /** Picks a direction among `dirs` (never empty). */
   choose(
@@ -132,30 +138,60 @@ function boardValue(board: GameState): number {
   return total;
 }
 
+/** Value of breaking one stone: high when it is the goal, moderate otherwise (stones clog the board). */
+const STONE_GOAL_VALUE = 3000;
+const STONE_CLEAR_VALUE = 800;
+/** With this many free cells or fewer after a slide, the corner bot also weighs the next spawn. */
+const CAREFUL_EMPTY = 4;
+const DEAD = -1e9;
+
+/** The best one-slide board value reachable from `board` (DEAD when nothing moves). */
+function bestNext(board: GameState, walls: ReadonlySet<number>): number {
+  let best = DEAD;
+  for (const d of DIRECTIONS) {
+    const slid = slide(board, d, { walls });
+    if (slid.moved) best = Math.max(best, boardValue(slid.state));
+  }
+  return best;
+}
+
+/**
+ * Average over every cell a 2 could spawn on of the best follow-up. This is an
+ * expectation over possible spawns, not a peek at the real one (the bot never
+ * reads the RNG), the way a careful player checks "what if it lands there".
+ */
+function spawnAware(board: GameState, walls: ReadonlySet<number>): number {
+  const cells = emptyCellIndices(board, walls);
+  if (cells.length === 0) return DEAD;
+  let total = 0;
+  for (const i of cells) total += bestNext(placeTile(board, i, 'number', 2).state, walls);
+  return total / cells.length;
+}
+
 /**
  * A competent-player stand-in: one-move lookahead with the heuristic above
- * (big tiles ordered toward an edge/corner, free cells, ready merges), plus
- * stone breaking when the stage asks for it. It looks at the slide only, never
- * at the upcoming random spawn.
+ * (big tiles ordered toward an edge/corner, free cells, ready merges), plus a
+ * bonus for breaking stones (large when the stage asks for it). When the board
+ * is nearly full it also averages over where the next tile could appear.
  */
 const cornerBot: Bot = {
   name: 'corner',
   usesActives: true,
   choose(run, dirs, rng) {
     const spec = STAGES[run.stageIndex];
-    const wantsStones = spec?.goal.type === 'stones';
+    const stoneValue = spec?.goal.type === 'stones' ? STONE_GOAL_VALUE : STONE_CLEAR_VALUE;
+    const walls = lockedCells(run.boss?.lock ?? null, run.board.size);
     let best = dirs[0] as Direction;
     let bestValue = Number.NEGATIVE_INFINITY;
     for (const d of dirs) {
-      const slid = slideFor(run, d);
-      let value = boardValue(slid.state);
-      if (wantsStones) {
-        const sites = slid.events.flatMap((e) =>
-          e.type === 'merge'
-            ? [{ index: e.to.row * run.board.size + e.to.col, value: e.value }]
-            : [],
-        );
-        value += breakStones(slid.state, sites, null).broken * 3000;
+      const slid = slide(run.board, d, { walls });
+      const careful = emptyCellIndices(slid.state, walls).length <= CAREFUL_EMPTY;
+      let value = careful ? spawnAware(slid.state, walls) : boardValue(slid.state);
+      const sites = slid.events.flatMap((e) =>
+        e.type === 'merge' ? [{ index: e.to.row * run.board.size + e.to.col, value: e.value }] : [],
+      );
+      if (sites.length > 0) {
+        value += breakStones(slid.state, sites, null).broken * stoneValue;
       }
       if (value > bestValue) {
         bestValue = value;
@@ -166,16 +202,22 @@ const cornerBot: Bot = {
   },
 };
 
-const BOTS: readonly Bot[] = [randomBot, greedyBot, cornerBot];
+export const ALL_BOTS: readonly Bot[] = [randomBot, greedyBot, cornerBot];
 
 // ---------------------------------------------------------------- one run
 
-interface RunRecord {
+type FailReason = 'moves' | 'stuck';
+
+export interface RunRecord {
   readonly won: boolean;
   /** Index of the last stage reached. */
   readonly reached: number;
   /** Moves used per cleared stage. */
   readonly movesPerStage: readonly number[];
+  /** Moves of the whole run (cleared stages plus the one it ended on). */
+  readonly totalMoves: number;
+  /** Why the run ended, unless it was won. */
+  readonly failReason: FailReason | null;
   readonly offers: readonly { readonly offered: readonly RelicId[]; readonly picked: RelicId }[];
 }
 
@@ -238,39 +280,61 @@ function playStage(start: RunState, bot: Bot, rngIn: RngState): { run: RunState;
   return { run, rng };
 }
 
-function playRun(bot: Bot, seed: number): RunRecord {
+/** How a simulated player picks a relic from an offer (null = skip). */
+export type Picker = (
+  offer: readonly RelicId[],
+  rng: RngState,
+) => { picked: RelicId | null; rng: RngState };
+
+/** Uniformly random picks: every relic is tried equally often (the relic table relies on it). */
+export const randomPick: Picker = (offer, rng) => {
+  if (offer.length === 0) return { picked: null, rng };
+  const roll = nextInt(rng, offer.length);
+  return { picked: offer[roll.value] as RelicId, rng: roll.rng };
+};
+
+/** Never takes a relic: how far a build-less player gets. */
+export const skipPick: Picker = (_offer, rng) => ({ picked: null, rng });
+
+export function playRun(bot: Bot, seed: number, pick: Picker = randomPick): RunRecord {
   let run = startRun('run', seed).run;
   let rng = createRng(seed ^ 0x5bd1e995);
   const movesPerStage: number[] = [];
   const offers: { offered: RelicId[]; picked: RelicId }[] = [];
 
+  let totalMoves = 0;
   while (run.status === 'playing') {
     const played = playStage(run, bot, rng);
     run = played.run;
     rng = played.rng;
+    totalMoves += run.progress.movesUsed;
     if (run.status === 'victory') movesPerStage.push(run.progress.movesUsed);
     if (run.status !== 'offer') break;
     movesPerStage.push(run.progress.movesUsed);
-    let picked: RelicId | null = null;
-    if (run.offer.length > 0) {
-      const roll = nextInt(rng, run.offer.length);
-      rng = roll.rng;
-      picked = run.offer[roll.value] as RelicId;
-      offers.push({ offered: [...run.offer], picked });
-    }
-    run = chooseRelic(run, picked).run;
+    const choice = pick(run.offer, rng);
+    rng = choice.rng;
+    if (choice.picked !== null) offers.push({ offered: [...run.offer], picked: choice.picked });
+    run = chooseRelic(run, choice.picked).run;
   }
-  return { won: run.status === 'victory', reached: run.stageIndex, movesPerStage, offers };
+  const won = run.status === 'victory';
+  return {
+    won,
+    reached: run.stageIndex,
+    movesPerStage,
+    totalMoves,
+    failReason: won ? null : (run.failReason ?? 'stuck'),
+    offers,
+  };
 }
 
-interface StageRecord {
+export interface StageRecord {
   readonly cleared: boolean;
   readonly moves: number;
-  readonly reason: 'moves' | 'stuck' | null;
+  readonly reason: FailReason | null;
 }
 
 /** One stage in isolation, without relics. */
-function playIsolated(bot: Bot, stageIndex: number, seed: number): StageRecord {
+export function playIsolated(bot: Bot, stageIndex: number, seed: number): StageRecord {
   const run = startRun('run', seed, { stageIndex }).run;
   const played = playStage(run, bot, createRng(seed ^ 0x2545f491)).run;
   const cleared = played.status === 'offer' || played.status === 'victory';
@@ -311,10 +375,13 @@ function main(): void {
   const args = process.argv.slice(2);
   const runsArg = args.indexOf('--runs');
   const runs = runsArg >= 0 ? Number(args[runsArg + 1]) : 300;
+  const botsArg = args.indexOf('--bots');
+  const wanted = botsArg >= 0 ? (args[botsArg + 1] ?? '').split(',') : null;
+  const bots = wanted ? ALL_BOTS.filter((b) => wanted.includes(b.name)) : ALL_BOTS;
   const started = Date.now();
 
   const records = new Map<string, RunRecord[]>();
-  for (const bot of BOTS) {
+  for (const bot of bots) {
     const list: RunRecord[] = [];
     for (let i = 0; i < runs; i++) list.push(playRun(bot, 1000 + i));
     records.set(bot.name, list);
@@ -322,14 +389,15 @@ function main(): void {
 
   console.log(`Neon Rift balance sim: ${runs} runs per bot, seeds 1000..${1000 + runs - 1}\n`);
   console.log(
-    'Per-stage clear rate (of runs that reached the stage) and avg moves used when cleared',
+    'Per-stage clear rate (of runs that reached the stage), runs reached, avg moves when cleared,',
   );
+  console.log('and runs lost here by moves/stuck');
   const header =
-    pad('stage', 8) + pad('goal / moves', 26) + BOTS.map((b) => pad(b.name, 20)).join('');
+    pad('stage', 8) + pad('goal / moves', 26) + bots.map((b) => pad(b.name, 28)).join('');
   console.log(header);
   for (let s = 0; s < STAGES.length; s++) {
     let line = pad(stageLabel(s), 8) + pad(describe(s), 26);
-    for (const bot of BOTS) {
+    for (const bot of bots) {
       const list = records.get(bot.name) ?? [];
       const reached = list.filter((r) => r.reached >= s).length;
       const cleared = list.filter((r) => r.reached > s || (r.reached === s && r.won)).length;
@@ -338,9 +406,12 @@ function main(): void {
         return m === undefined ? [] : [m];
       });
       const avg = moves.length ? (moves.reduce((a, b) => a + b, 0) / moves.length).toFixed(0) : '-';
+      const lost = list.filter((r) => r.reached === s && !r.won);
+      const byMoves = lost.filter((r) => r.failReason === 'moves').length;
+      const stuck = lost.length - byMoves;
       line += pad(
-        `${pct(cleared, reached)} ${String(reached).padStart(4)}r ${avg.padStart(4)}m`,
-        20,
+        `${pct(cleared, reached)} ${String(reached).padStart(4)}r ${avg.padStart(4)}m ${byMoves}/${stuck}`,
+        28,
       );
     }
     console.log(line);
@@ -350,11 +421,11 @@ function main(): void {
     '\nEach stage alone, no relics: clear rate, avg moves when cleared, failures by moves/stuck',
   );
   console.log(
-    pad('stage', 8) + pad('goal / moves', 26) + BOTS.map((b) => pad(b.name, 24)).join(''),
+    pad('stage', 8) + pad('goal / moves', 26) + bots.map((b) => pad(b.name, 24)).join(''),
   );
   for (let s = 0; s < STAGES.length; s++) {
     let line = pad(stageLabel(s), 8) + pad(describe(s), 26);
-    for (const bot of BOTS) {
+    for (const bot of bots) {
       const list = Array.from({ length: runs }, (_, i) => playIsolated(bot, s, 5000 + i));
       const cleared = list.filter((r) => r.cleared);
       const avg = cleared.length
@@ -370,14 +441,30 @@ function main(): void {
     console.log(line);
   }
 
-  console.log('\nOutcome');
-  for (const bot of BOTS) {
+  console.log('\nOutcome (lost by moves/stuck = share of lost runs; moves = per run, all / won)');
+  const mean = (xs: readonly number[]): string =>
+    xs.length ? (xs.reduce((a, b) => a + b, 0) / xs.length).toFixed(0) : '-';
+  for (const bot of bots) {
     const list = records.get(bot.name) ?? [];
-    const wins = list.filter((r) => r.won).length;
+    const wins = list.filter((r) => r.won);
+    const lost = list.filter((r) => !r.won);
     const pastAct1 = list.filter((r) => r.reached >= 4).length;
     const act3Boss = list.filter((r) => r.reached >= 11).length;
+    const byMoves = lost.filter((r) => r.failReason === 'moves').length;
     console.log(
-      `${pad(bot.name, 8)} win ${pct(wins, list.length)}  past act 1 ${pct(pastAct1, list.length)}  reached act 3 boss ${pct(act3Boss, list.length)}  boss win ${pct(wins, act3Boss)}`,
+      `${pad(bot.name, 8)} win ${pct(wins.length, list.length)}  past act 1 ${pct(pastAct1, list.length)}  reached act 3 boss ${pct(act3Boss, list.length)}  boss win ${pct(wins.length, act3Boss)}` +
+        `  lost by moves/stuck ${pct(byMoves, lost.length)}/${pct(lost.length - byMoves, lost.length)}` +
+        `  moves ${mean(list.map((r) => r.totalMoves))} / ${mean(wins.map((r) => r.totalMoves))}`,
+    );
+  }
+
+  // The same bot with no build at all: how much of the win rate the relics carry.
+  const cornerBotDef = bots.find((b) => b.name === 'corner');
+  if (cornerBotDef) {
+    const bare = Array.from({ length: runs }, (_, i) => playRun(cornerBotDef, 1000 + i, skipPick));
+    const reach = (s: number): string => pct(bare.filter((r) => r.reached >= s).length, runs);
+    console.log(
+      `${pad('corner', 8)} skipping every relic: win ${pct(bare.filter((r) => r.won).length, runs)}  reached act 2 ${reach(4)}  act 3 ${reach(8)}`,
     );
   }
 
@@ -389,6 +476,11 @@ function main(): void {
     '\nRelic win-rate delta (corner bot): first offer containing X → picked X vs picked another',
   );
   const corner = records.get('corner') ?? [];
+  if (corner.length === 0) {
+    console.log('(corner bot not run)');
+    console.log(`\n(${((Date.now() - started) / 1000).toFixed(1)} s)`);
+    return;
+  }
   const rows: {
     id: RelicId;
     picked: number;
@@ -431,4 +523,5 @@ function main(): void {
   console.log(`\n(${((Date.now() - started) / 1000).toFixed(1)} s)`);
 }
 
-main();
+// Runs when executed (`npm run sim`), not when imported by a tuning script.
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) main();
