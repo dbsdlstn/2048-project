@@ -399,6 +399,10 @@ export type ScreenModel =
       readonly hintsReset: boolean;
       /** False when the browser refused to save (private mode, full storage). */
       readonly storageOk: boolean;
+      /** Whether this device can vibrate (the switch is hidden otherwise, e.g. on iOS). */
+      readonly hapticsAvailable: boolean;
+      /** The device asks for reduced motion (what "자동" follows). */
+      readonly systemReducedMotion: boolean;
     }
   | {
       /** Starting a new game would discard the saved one in `slot`. */

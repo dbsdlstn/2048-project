@@ -10,3 +10,7 @@ export * from './spriteCache';
 export * from './marks';
 export * from './effects';
 export * from './renderer';
+export * from './particles';
+export * from './shake';
+export * from './budget';
+export * from './fx';

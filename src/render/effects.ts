@@ -1,8 +1,9 @@
 /**
  * Simple built-in effects played from event cues: a ring pulse at a cell, a
- * flash along a line, a glow around the board. They are deliberately plain;
- * stage 5 adds particles, shake and sound through the same cue hook
- * (`BoardRenderer.onCue`) and the `Effect` interface.
+ * flash along a line, a glow around the board. They mark *where* something
+ * happened and stay on in reduced-motion mode; particles, shake and sound
+ * come on top from the feedback director (src/game/feedback.ts) through the
+ * same cue hook (`BoardRenderer.onCue`).
  */
 import type { LineAxis, TurnEvent } from '../core';
 import { cellCenter, type BoardLayout } from './layout';
@@ -17,11 +18,14 @@ import type { EventCue } from './viewModel';
  * shake. The renderer only drives them.
  */
 export interface Effect {
-  /** Advances by `dt` ms. Return false once finished; the effect is then dropped. */
+  /**
+   * Advances by `dt` ms (real time). `now` is the view clock, which a hit-stop
+   * holds still. Return false once finished; the effect is then dropped.
+   */
   update(dt: number, now: number): boolean;
   /** Draws above the tiles, in board space (CSS px, origin = board top-left). */
   draw?(ctx: CanvasRenderingContext2D, layout: BoardLayout, now: number): void;
-  /** Camera displacement in CSS px this frame (screen shake). Summed over all effects. */
+  /** Camera displacement in CSS px this frame. Summed over all effects and the fx shake. */
   offset?(now: number): { readonly x: number; readonly y: number };
 }
 
@@ -94,7 +98,11 @@ export class LineFlash extends TimedEffect {
   }
 }
 
-/** A glow around the board's edge (boss rules without a position, shuffles). */
+/**
+ * A glow around the board's edge (boss rules without a position, shuffles,
+ * stage end). A wide faint stroke under a thin bright one fakes the glow: no
+ * `shadowBlur` in a per-frame path.
+ */
 export class BoardFlash extends TimedEffect {
   constructor(
     private readonly color: string,
@@ -109,11 +117,7 @@ export class BoardFlash extends TimedEffect {
     const t = this.t(now);
     const inset = layout.gap * 0.3;
     ctx.save();
-    ctx.globalAlpha = 1 - t;
     ctx.strokeStyle = this.color;
-    ctx.lineWidth = layout.gap * (0.6 + 0.6 * (1 - t));
-    ctx.shadowColor = this.color;
-    ctx.shadowBlur = 16;
     roundRectPath(
       ctx,
       inset,
@@ -122,6 +126,11 @@ export class BoardFlash extends TimedEffect {
       layout.size - inset * 2,
       layout.size * BOARD_RADIUS_RATIO,
     );
+    ctx.globalAlpha = 0.3 * (1 - t);
+    ctx.lineWidth = layout.gap * (1.6 + 1.2 * (1 - t));
+    ctx.stroke();
+    ctx.globalAlpha = 1 - t;
+    ctx.lineWidth = layout.gap * (0.4 + 0.4 * (1 - t));
     ctx.stroke();
     ctx.restore();
   }
@@ -136,7 +145,7 @@ const BOSS_SOURCES = new Set(['warden', 'corroder', 'chaos']);
 export function cueEffect(cue: EventCue, theme: Theme, late: boolean): Effect | null {
   if (late) return null;
   const e: TurnEvent = cue.event;
-  const at = cue.at;
+  const at = cue.hit;
   switch (e.type) {
     case 'trigger': {
       const boss = BOSS_SOURCES.has(e.source);

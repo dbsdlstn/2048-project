@@ -16,7 +16,17 @@ import type {
   TurnPhase,
   TurnPhaseKind,
 } from '../core';
-import { easeOutBack, easeOutCubic, endTime, sample, still, tween } from './tween';
+import {
+  easeOutBack,
+  easeOutCubic,
+  easeOutQuad,
+  easeOutSpring,
+  endTime,
+  linear,
+  sample,
+  still,
+  tween,
+} from './tween';
 import type { Tween } from './tween';
 
 /** Animation timings in milliseconds. */
@@ -32,6 +42,12 @@ export interface AnimationTimings {
   readonly status: number;
   /** Tiles flying to their new cells on a shuffle. */
   readonly shuffle: number;
+  /** Delay between the pops of consecutive merges in one phase, so a combo reads as a sequence. */
+  readonly stagger: number;
+  /** Wind-up before a big merge pops (the result dips, then springs out). */
+  readonly anticipation: number;
+  /** Squash-and-stretch recovery after a tile lands. */
+  readonly squash: number;
 }
 
 export const DEFAULT_TIMINGS: AnimationTimings = {
@@ -42,7 +58,15 @@ export const DEFAULT_TIMINGS: AnimationTimings = {
   destroy: 140,
   status: 120,
   shuffle: 220,
+  stagger: 30,
+  anticipation: 60,
+  squash: 130,
 };
+
+/** Merges producing at least this value get the anticipation wind-up and a bigger pop. */
+export const BIG_MERGE = 128;
+/** At most this many merges in one phase are staggered; later ones pop with the last. */
+const MAX_STAGGER_STEPS = 5;
 
 /** Draw order: merged-away tiles under normal tiles, fresh merge results on top. */
 const Z_VANISHING = 0;
@@ -50,8 +74,18 @@ const Z_NORMAL = 1;
 const Z_MERGED = 2;
 
 const popEase = easeOutBack(2.4);
+const bigPopEase = easeOutBack(3.6);
+const springEase = easeOutSpring(6, 11);
 const POP_FROM = 0.75;
 const STATUS_PULSE = 1.12;
+/** Anticipation dip of a big merge: appears at WIND_FROM, shrinks to WIND_TO, then pops. */
+const WIND_FROM = 0.92;
+const WIND_TO = 0.76;
+/** Stretch along the motion while sliding (per cell travelled, capped) and squash on landing. */
+const SLIDE_STRETCH = 0.035;
+const LAND_SQUASH = 0.09;
+const MERGE_SQUASH = 0.14;
+const BIG_MERGE_SQUASH = 0.2;
 
 /**
  * Sequential tweens of one property. A tile can slide in the slide phase,
@@ -84,6 +118,9 @@ interface Change {
   readonly status?: TileStatus;
 }
 
+/** The screen axis a tile is stretched along (its motion). */
+export type StretchAxis = 'x' | 'y';
+
 export interface TileSprite {
   readonly id: TileId;
   kind: TileKind;
@@ -95,6 +132,9 @@ export interface TileSprite {
   row: Track;
   col: Track;
   scale: Track;
+  /** Signed stretch along `axis` (0 = none, >0 longer along the axis, <0 squashed). */
+  stretch: Track;
+  axis: StretchAxis;
   /** Hidden until this time (merge results wait for the slide to finish). */
   appearAt: number;
   /** Removed from the view at this time (merge sources, destroyed tiles); `Infinity` = stays. */
@@ -113,6 +153,9 @@ export interface SpriteFrame {
   readonly row: number;
   readonly col: number;
   readonly scale: number;
+  /** Extra horizontal / vertical scale from squash and stretch (1 = none). */
+  readonly sx: number;
+  readonly sy: number;
   /** True while this tile's merge pop is playing (painters / effects may emphasise it). */
   readonly popping: boolean;
 }
@@ -134,6 +177,8 @@ function newSprite(
     row: [still(row)],
     col: [still(col)],
     scale: [still(1)],
+    stretch: [still(0)],
+    axis: 'x',
     appearAt: Number.NEGATIVE_INFINITY,
     removeAt: Number.POSITIVE_INFINITY,
     popUntil: Number.NEGATIVE_INFINITY,
@@ -142,16 +187,23 @@ function newSprite(
 }
 
 /**
- * When one event starts playing. `apply` returns one cue per event so effects
- * and sound (stage 5) can fire exactly when the matching animation does.
+ * When one event plays. `apply` returns one cue per event so effects and
+ * sound can fire exactly when the matching animation does.
  */
 export interface EventCue {
   readonly event: TurnEvent;
   readonly phase: TurnPhaseKind;
   /** Index of the phase within its step. */
   readonly phaseIndex: number;
-  /** Absolute time (clock timeline, ms) at which the event's animation starts. */
+  /** Absolute time (view timeline, ms) at which the event's animation starts. */
   readonly at: number;
+  /**
+   * When the event visibly lands: a merge's pop (after the slide, its stagger
+   * and any wind-up); the same as `at` for everything else. Cues fire here.
+   */
+  readonly hit: number;
+  /** Which `apply` call produced the cue (one per played step). */
+  readonly step: number;
 }
 
 export class BoardView {
@@ -159,6 +211,9 @@ export class BoardView {
   private gridSize: number;
   /** Time at which every currently scheduled animation has finished. */
   private busyUntil = Number.NEGATIVE_INFINITY;
+  private steps = 0;
+  /** Squash and stretch on landings and pops (off for reduced motion). */
+  squashEnabled = true;
 
   constructor(
     gridSize: number,
@@ -199,13 +254,23 @@ export class BoardView {
   apply(phases: readonly TurnPhase[], now: number): EventCue[] {
     this.finish();
     const cues: EventCue[] = [];
+    const step = ++this.steps;
     let cursor = now;
     let first = true;
     for (const [phaseIndex, phase] of phases.entries()) {
       const start = first ? cursor : cursor + this.timings.spawnDelay;
-      for (const event of phase.events)
-        cues.push({ event, phase: phase.kind, phaseIndex, at: start });
-      const duration = this.schedulePhase(phase.events, start);
+      const hits = new Map<TurnEvent, number>();
+      const duration = this.schedulePhase(phase.events, start, hits);
+      for (const event of phase.events) {
+        cues.push({
+          event,
+          phase: phase.kind,
+          phaseIndex,
+          at: start,
+          hit: hits.get(event) ?? start,
+          step,
+        });
+      }
       // Phases with nothing to show (score, triggers…) take no time.
       if (duration <= 0) continue;
       cursor = start + duration;
@@ -231,36 +296,65 @@ export class BoardView {
     };
   }
 
-  /** Schedules one phase's events from `start`; returns how long its board motion lasts. */
-  private schedulePhase(events: readonly TurnEvent[], start: number): number {
+  /**
+   * Schedules one phase's events from `start`; returns how long its board
+   * motion lasts. Impact times that differ from `start` go into `hits`.
+   */
+  private schedulePhase(
+    events: readonly TurnEvent[],
+    start: number,
+    hits: Map<TurnEvent, number>,
+  ): number {
     const t = this.timings;
     let duration = 0;
+    let merges = 0;
     for (const e of events) {
       switch (e.type) {
         case 'move': {
           const s = this.require(e.tileId);
           s.row.push(tween(e.from.row, e.to.row, start, t.slide, easeOutCubic));
           s.col.push(tween(e.from.col, e.to.col, start, t.slide, easeOutCubic));
+          this.slideStretch(s, e.from, e.to, start, LAND_SQUASH);
           duration = Math.max(duration, t.slide);
           break;
         }
         case 'merge': {
+          // Pops follow each other in the order the core merged them.
+          const delay = Math.min(merges, MAX_STAGGER_STEPS) * t.stagger;
+          merges++;
           const slideEnd = start + t.slide;
+          const land = slideEnd + delay;
           for (const [i, id] of e.sourceIds.entries()) {
             const s = this.require(id);
             const from = e.from[i] ?? e.to;
             s.row.push(tween(from.row, e.to.row, start, t.slide, easeOutCubic));
             s.col.push(tween(from.col, e.to.col, start, t.slide, easeOutCubic));
-            s.removeAt = slideEnd;
+            this.slideStretch(s, from, e.to, start, 0);
+            s.removeAt = land;
             s.z = Z_VANISHING;
           }
+          const big = e.value >= BIG_MERGE && this.squashEnabled;
+          const wind = big ? t.anticipation : 0;
+          const pop = land + wind;
           const result = newSprite(e.resultId, e.kind, e.value, NO_STATUS, e.to.row, e.to.col);
-          result.scale = [tween(POP_FROM, 1, slideEnd, t.pop, popEase)];
-          result.appearAt = slideEnd;
-          result.popUntil = slideEnd + t.pop;
+          result.scale = big
+            ? [
+                tween(WIND_FROM, WIND_TO, land, wind, easeOutQuad),
+                tween(WIND_TO, 1, pop, t.pop * 1.3, bigPopEase),
+              ]
+            : [tween(POP_FROM, 1, land, t.pop, popEase)];
+          if (this.squashEnabled) {
+            const other = e.from[1];
+            result.axis = other.col !== e.to.col ? 'x' : 'y';
+            const amount = big ? BIG_MERGE_SQUASH : MERGE_SQUASH;
+            result.stretch.push(tween(-amount, 0, pop, t.squash, springEase));
+          }
+          result.appearAt = land;
+          result.popUntil = pop + t.pop;
           result.z = Z_MERGED;
           this.sprites.set(e.resultId, result);
-          duration = Math.max(duration, t.slide);
+          hits.set(e, pop);
+          duration = Math.max(duration, t.slide + delay + wind);
           break;
         }
         case 'spawn': {
@@ -317,6 +411,33 @@ export class BoardView {
     return duration;
   }
 
+  /**
+   * Stretch along the motion while a tile slides, then (`land` > 0) a squash
+   * that springs back when it stops. Short hops barely deform.
+   */
+  private slideStretch(
+    s: TileSprite,
+    from: { row: number; col: number },
+    to: { row: number; col: number },
+    start: number,
+    land: number,
+  ): void {
+    if (!this.squashEnabled) return;
+    const dist = Math.abs(to.row - from.row) + Math.abs(to.col - from.col);
+    if (dist === 0) return;
+    const t = this.timings;
+    s.axis = to.col !== from.col ? 'x' : 'y';
+    const k = SLIDE_STRETCH * Math.min(dist, 3);
+    s.stretch.push(tween(k, k * 0.3, start, t.slide, linear));
+    const end = start + t.slide;
+    if (land > 0) {
+      const amount = land * (0.6 + 0.2 * Math.min(dist, 3));
+      s.stretch.push(tween(-amount, 0, end, t.squash, springEase));
+    } else {
+      s.stretch.push(tween(0, 0, end, 0, linear));
+    }
+  }
+
   /** True while any scheduled animation has not reached its end at `now`. */
   isAnimating(now: number): boolean {
     return now < this.busyUntil;
@@ -344,6 +465,7 @@ export class BoardView {
       s.row = [still(finalValue(s.row))];
       s.col = [still(finalValue(s.col))];
       s.scale = [still(finalValue(s.scale))];
+      s.stretch = [still(0)];
       for (const c of s.changes) {
         if (c.value !== undefined) s.value = c.value;
         if (c.status !== undefined) s.status = c.status;
@@ -368,6 +490,7 @@ export class BoardView {
         if (c.value !== undefined) value = c.value;
         if (c.status !== undefined) status = c.status;
       }
+      const k = sampleTrack(s.stretch, now);
       out.push({
         z: s.z,
         f: {
@@ -378,6 +501,8 @@ export class BoardView {
           row: sampleTrack(s.row, now),
           col: sampleTrack(s.col, now),
           scale: sampleTrack(s.scale, now),
+          sx: s.axis === 'x' ? 1 + k : 1 - k,
+          sy: s.axis === 'x' ? 1 - k : 1 + k,
           popping: now < s.popUntil,
         },
       });
@@ -400,7 +525,13 @@ export class BoardView {
   private computeBusyUntil(): number {
     let until = Number.NEGATIVE_INFINITY;
     for (const s of this.sprites.values()) {
-      until = Math.max(until, trackEnd(s.row), trackEnd(s.col), trackEnd(s.scale));
+      until = Math.max(
+        until,
+        trackEnd(s.row),
+        trackEnd(s.col),
+        trackEnd(s.scale),
+        trackEnd(s.stretch),
+      );
       if (Number.isFinite(s.removeAt)) until = Math.max(until, s.removeAt);
       for (const c of s.changes) until = Math.max(until, c.at);
     }

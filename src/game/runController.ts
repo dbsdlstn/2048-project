@@ -98,6 +98,10 @@ export interface RunControllerOptions {
   readonly store?: SaveStore;
   /** Today's local date as `YYYY-MM-DD` (the daily challenge). Defaults to the device clock. */
   readonly today?: () => string;
+  /** Device features the settings sheet depends on. Default: no vibration, no reduced-motion preference. */
+  readonly device?: () => { readonly haptics: boolean; readonly reducedMotion: boolean };
+  /** Called after a setting changed (the app applies it to audio, vibration and motion). */
+  readonly onSettings?: (settings: Settings) => void;
 }
 
 /** Which saved game the current run belongs to. */
@@ -289,6 +293,7 @@ export class RunController {
 
   setSetting<K extends keyof Settings>(key: K, value: Settings[K]): void {
     this.store.updateSettings({ [key]: value });
+    this.options.onSettings?.(this.store.settings);
     if (this.screenModel.kind === 'settings') {
       this.setScreen(this.settingsModel(this.screenModel.back));
     }
@@ -532,12 +537,15 @@ export class RunController {
   }
 
   private settingsModel(back: SheetOrigin): ScreenModel {
+    const device = this.options.device?.() ?? { haptics: false, reducedMotion: false };
     return {
       kind: 'settings',
       settings: this.store.settings,
       back,
       hintsReset: this.hintsReset,
       storageOk: this.store.writable,
+      hapticsAvailable: device.haptics,
+      systemReducedMotion: device.reducedMotion,
     };
   }
 

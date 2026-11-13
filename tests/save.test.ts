@@ -63,7 +63,7 @@ describe('SaveStore: round trips', () => {
     const b = new SaveStore(storage);
     expect(b.records).toMatchObject({ runBestStages: 5, runBestScore: 1234 });
     expect([...b.seenHints]).toEqual(['hazard:stone']);
-    expect(b.settings).toEqual({ sound: false, haptics: true });
+    expect(b.settings).toEqual({ ...DEFAULT_SETTINGS, sound: false });
     expect(b.dailyRecord('2026-11-13')).toEqual({
       date: '2026-11-13',
       attempts: 1,
@@ -155,7 +155,7 @@ describe('SaveStore: bad data falls back cleanly', () => {
     });
     expect(store.records).toEqual(EMPTY_RECORDS);
     expect([...store.seenHints]).toEqual(['boss:warden']);
-    expect(store.settings).toEqual({ sound: false, haptics: true });
+    expect(store.settings).toEqual({ ...DEFAULT_SETTINGS, sound: false });
     expect(store.dailyHistory.map((d) => d.date)).toEqual(['2026-11-13']);
   });
 

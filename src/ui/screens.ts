@@ -6,7 +6,7 @@
  */
 import type { RelicId } from '../core';
 import type { HudModel, OfferCard, Records, ScreenModel } from '../game/runView';
-import type { RunSlot, Settings } from '../save/store';
+import { VOLUME_LEVELS, type MotionSetting, type RunSlot, type Settings } from '../save/store';
 import { button, el, formatNumber } from './dom';
 
 export interface ScreenHandlers {
@@ -18,7 +18,7 @@ export interface ScreenHandlers {
   readonly onCloseSheet: () => void;
   readonly onOpenHelp: () => void;
   readonly onOpenSettings: () => void;
-  readonly onSetting: (key: keyof Settings, value: boolean) => void;
+  readonly onSetting: <K extends keyof Settings>(key: K, value: Settings[K]) => void;
   readonly onResetHints: () => void;
   readonly onChooseRelic: (id: RelicId | null) => void;
   readonly onResume: () => void;
@@ -140,7 +140,7 @@ export function helpScreen(model: Model<'help'>, h: ScreenHandlers): HTMLElement
 
 function toggle(
   label: string,
-  key: keyof Settings,
+  key: 'sound' | 'haptics',
   value: boolean,
   h: ScreenHandlers,
 ): HTMLButtonElement {
@@ -153,8 +153,42 @@ function toggle(
   return b;
 }
 
+/** A labelled row of mutually exclusive buttons (radio group). */
+function segmented<T>(
+  label: string,
+  options: readonly { value: T; text: string }[],
+  current: T,
+  pick: (value: T) => void,
+  note?: string,
+): HTMLElement {
+  const row = el('div', 'segment-row');
+  const group = el('div', 'segment');
+  group.setAttribute('role', 'radiogroup');
+  group.setAttribute('aria-label', label);
+  for (const o of options) {
+    const b = button('segment-btn', o.text, () => {
+      if (o.value !== current) pick(o.value);
+    });
+    b.setAttribute('role', 'radio');
+    b.setAttribute('aria-checked', String(o.value === current));
+    group.append(b);
+  }
+  const head = el('span', 'segment-label', label);
+  if (note) head.append(el('small', '', note));
+  row.append(head, group);
+  return row;
+}
+
+/** The volume step closest to a stored volume. */
+function nearestVolume(volume: number): number {
+  let best: number = VOLUME_LEVELS[0];
+  for (const v of VOLUME_LEVELS) if (Math.abs(v - volume) < Math.abs(best - volume)) best = v;
+  return best;
+}
+
 export function settingsScreen(model: Model<'settings'>, h: ScreenHandlers): HTMLElement {
   const wrap = el('div', 'sheet settings');
+  const st = model.settings;
   const reset = button(
     'btn',
     model.hintsReset ? '도움말을 다시 보여 줄게요' : '도움말 다시 보기',
@@ -163,13 +197,50 @@ export function settingsScreen(model: Model<'settings'>, h: ScreenHandlers): HTM
     },
   );
   reset.disabled = model.hintsReset;
+  wrap.append(el('h2', 'sheet-title', '설정'), toggle('효과음', 'sound', st.sound, h));
+  if (st.sound) {
+    wrap.append(
+      segmented(
+        '음량',
+        [
+          { value: VOLUME_LEVELS[0], text: '작게' },
+          { value: VOLUME_LEVELS[1], text: '보통' },
+          { value: VOLUME_LEVELS[2], text: '크게' },
+        ],
+        nearestVolume(st.volume),
+        (v) => {
+          h.onSetting('volume', v);
+        },
+      ),
+    );
+  }
+  // iPhones (every iOS browser) cannot vibrate from a web page: no switch that does nothing.
+  if (model.hapticsAvailable) wrap.append(toggle('진동', 'haptics', st.haptics, h));
+  const motion: { value: MotionSetting; text: string }[] = [
+    { value: 'auto', text: '기기 설정' },
+    { value: 'on', text: '켬' },
+    { value: 'off', text: '끔' },
+  ];
   wrap.append(
-    el('h2', 'sheet-title', '설정'),
-    toggle('효과음', 'sound', model.settings.sound, h),
-    toggle('진동', 'haptics', model.settings.haptics, h),
-    el('p', 'sheet-note', '효과음과 진동은 다음 업데이트에서 들어와요'),
-    reset,
+    segmented(
+      '움직임 줄이기',
+      motion,
+      st.reduceMotion,
+      (v) => {
+        h.onSetting('reduceMotion', v);
+      },
+      st.reduceMotion === 'auto'
+        ? model.systemReducedMotion
+          ? '지금: 켬'
+          : '지금: 끔'
+        : undefined,
+    ),
+    el('p', 'sheet-note', '움직임 줄이기: 흔들림·멈칫·튀는 효과를 빼고 꼭 필요한 표시만 남겨요'),
   );
+  if (st.sound) {
+    wrap.append(el('p', 'sheet-note', '소리가 안 나면 기기의 무음 모드를 확인하세요'));
+  }
+  wrap.append(reset);
   if (!model.storageOk) {
     wrap.append(
       el('p', 'sheet-warn', '이 브라우저에서는 저장이 안 돼요. 닫으면 기록과 진행이 사라져요'),

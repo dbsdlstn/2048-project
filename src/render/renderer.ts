@@ -1,18 +1,25 @@
 /**
  * Canvas 2D board renderer. Owns the canvas, a `BoardView` (the animated view
- * model), a tile sprite cache, board marks and a list of effects, and drives
- * them from an on-demand `AnimationLoop`. Time comes from an injected
- * `FrameClock`.
+ * model), a tile sprite cache, board marks, a list of effects and the "juice"
+ * layer (`fx`: particles, shake, floating text), and drives them from an
+ * on-demand `AnimationLoop`. Time comes from an injected `FrameClock`.
  *
- * Hooks for later stages: every event of a played step is announced through
- * `onCue` at the moment its animation starts (or immediately, flagged late, if
- * a newer step fast-forwarded it). Stage 5 hangs particles, shake and sound on
- * that; `addEffect` draws anything over the board.
+ * Every event of a played step is announced through `onCue` at the moment it
+ * visibly lands (or immediately, flagged late, if a newer step fast-forwarded
+ * it). The feedback director hangs particles, shake, sound and vibration on
+ * that; `addEffect` draws anything else over the board.
+ *
+ * Two clocks: the real clock (frames, particles, shake) and the view clock
+ * (tile animation, cues, marks). They are the same except during a hit-stop,
+ * when the view clock holds still for a few dozen ms. A new step always
+ * releases the hold first, so input is never delayed by it.
  */
 import type { GameState, Position, RunStep } from '../core';
+import { FrameBudget } from './budget';
 import { browserClock, type FrameClock } from './clock';
 import { cueEffect, type Effect } from './effects';
 import { cellAtPoint, cellCenter, computeLayout, type BoardLayout } from './layout';
+import { BoardFx } from './fx';
 import { AnimationLoop } from './loop';
 import {
   NO_MARKS,
@@ -28,9 +35,10 @@ import { STATUS_OVERLAYS } from './tilePainter';
 import { BoardView, DEFAULT_TIMINGS, type AnimationTimings, type EventCue } from './viewModel';
 
 /**
- * Called once per event of a played step, when its animation starts. `late`
- * is true when the cue fires early because a newer step (or `settle`)
- * fast-forwarded the animation: sounds may still play, visuals usually skip.
+ * Called once per event of a played step, when it visibly lands (`cue.hit`).
+ * `late` is true when the cue fires early because a newer step (or `settle`)
+ * fast-forwarded the animation: its moment has passed, so visuals skip and
+ * only important sounds may still play.
  */
 export type CueListener = (cue: EventCue, late: boolean) => void;
 
@@ -43,11 +51,48 @@ export interface BoardRendererOptions {
   readonly createCanvas?: CanvasFactory;
   /** Plays the built-in effects for events (pulses, line flashes). Default true. */
   readonly builtInEffects?: boolean;
+  /** High-resolution timer for frame-cost statistics. Defaults to `performance.now`. */
+  readonly perfNow?: () => number;
+  /** Random source of the particles (seeded by default, so screenshots repeat). */
+  readonly random?: () => number;
 }
+
+/** Frame statistics over the last animated frames (debug hook, performance checks). */
+export interface FrameStats {
+  readonly frames: number;
+  /** Frame interval (ms): what the player sees. */
+  readonly avg: number;
+  readonly p95: number;
+  readonly worst: number;
+  /** Time spent inside the renderer's tick (ms). */
+  readonly costAvg: number;
+  readonly costWorst: number;
+  /** Current effect density chosen by the frame budget (1 = full). */
+  readonly quality: number;
+  readonly particles: number;
+  readonly particlesDropped: number;
+}
+
+const STATS_FRAMES = 600;
+/** Longest hit-stop allowed, whatever the caller asks for. */
+export const MAX_HIT_STOP = 120;
 
 export class BoardRenderer {
   readonly view: BoardView;
   readonly clock: FrameClock;
+  /** Particles, shake, floating text: the feedback director drives it. */
+  readonly fx: BoardFx;
+  private readonly budget = new FrameBudget();
+  private readonly perfNow: () => number;
+  private readonly statDt = new Float32Array(STATS_FRAMES);
+  private readonly statCost = new Float32Array(STATS_FRAMES);
+  private statCount = 0;
+  /** Real-time start / end of the running hit-stop (view clock frozen), or null. */
+  private holdStart: number | null = null;
+  private holdEnd = 0;
+  /** Total hit-stop time so far: view time = real time - viewOffset (outside a hold). */
+  private viewOffset = 0;
+  private reducedMotion = false;
   private readonly ctx: CanvasRenderingContext2D;
   private readonly theme: Theme;
   private readonly effects: Effect[] = [];
@@ -80,6 +125,12 @@ export class BoardRenderer {
     this.sprites = new TileSpriteCache({ theme: this.theme, createCanvas: this.createCanvas });
     this.loop = new AnimationLoop(this.clock, this.tick);
     this.layout = computeLayout(1, gridSize);
+    this.perfNow = options.perfNow ?? (() => performance.now());
+    this.fx = new BoardFx({
+      createCanvas: this.createCanvas,
+      fontFamily: this.theme.fontFamily,
+      ...(options.random ? { random: options.random } : {}),
+    });
     if (options.builtInEffects ?? true) {
       this.listeners.add((cue, late) => {
         const effect = cueEffect(cue, this.theme, late);
@@ -100,6 +151,7 @@ export class BoardRenderer {
 
   /** Animates a run step. Safe to call mid-animation: the previous step is fast-forwarded. */
   showStep(step: RunStep): void {
+    this.releaseHold();
     this.flushCues(true);
     this.applyPendingMarks(true);
     if (step.boardReplaced) {
@@ -116,8 +168,9 @@ export class BoardRenderer {
    * how the HUD numbers change together with the board.
    */
   setMarks(marks: BoardMarks, onShown?: () => void): void {
-    const now = this.clock.now();
-    const at = Math.max(this.view.endTime, this.pendingCues.at(-1)?.at ?? -Infinity);
+    const now = this.viewTimeNow();
+    let at = this.view.endTime;
+    for (const cue of this.pendingCues) at = Math.max(at, cue.hit);
     // A newer state replaces a waiting one; its callback still runs, so no HUD update is lost.
     this.applyPendingMarks(true);
     if (at <= now || marks.targeting || this.marks.targeting) {
@@ -131,9 +184,11 @@ export class BoardRenderer {
 
   /** Empties the board (no tiles, no marks, no effects). */
   clear(): void {
+    this.releaseHold();
     this.flushCues(true);
     this.view.clear();
     this.effects.length = 0;
+    this.fx.clear();
     this.marks = NO_MARKS;
     this.pendingMarks = null;
     this.loop.invalidate();
@@ -152,6 +207,74 @@ export class BoardRenderer {
   addEffect(effect: Effect): void {
     this.effects.push(effect);
     this.loop.invalidate();
+  }
+
+  /** Wakes the loop after something was added to `fx` outside a frame. */
+  wake(): void {
+    this.loop.invalidate();
+  }
+
+  /**
+   * Freezes the tile animation for `ms` (capped) while particles and shake
+   * keep running: weight for a rare, big moment. Ignored with reduced motion.
+   * The next step releases it at once, so input is never held back.
+   */
+  hitStop(ms: number): void {
+    if (this.reducedMotion || ms <= 0) return;
+    const now = this.clock.now();
+    const end = now + Math.min(ms, MAX_HIT_STOP);
+    this.holdStart ??= now;
+    this.holdEnd = Math.max(this.holdEnd, end);
+    this.loop.invalidate();
+  }
+
+  /** True while a hit-stop holds the view clock. */
+  get holding(): boolean {
+    return this.holdStart !== null && this.clock.now() < this.holdEnd;
+  }
+
+  /**
+   * Reduced motion: no squash and stretch, no wind-up, no shake, no nudge, no
+   * hit-stop, a quarter of the particles. Information (what merged, what
+   * broke, which line is sealed) is still shown.
+   */
+  setReducedMotion(reduced: boolean): void {
+    this.reducedMotion = reduced;
+    this.view.squashEnabled = !reduced;
+    this.fx.reduced = reduced;
+    this.fx.shake.enabled = !reduced;
+    if (reduced) {
+      this.fx.shake.clear();
+      this.releaseHold();
+    }
+  }
+
+  get motionReduced(): boolean {
+    return this.reducedMotion;
+  }
+
+  /** Statistics of the last animated frames (see `FrameStats`). */
+  frameStats(): FrameStats {
+    const n = Math.min(this.statCount, STATS_FRAMES);
+    const dts = Array.from(this.statDt.subarray(0, n)).sort((a, b) => a - b);
+    const costs = Array.from(this.statCost.subarray(0, n));
+    const sum = (xs: number[]): number => xs.reduce((a, b) => a + b, 0);
+    return {
+      frames: n,
+      avg: n ? sum(dts) / n : 0,
+      p95: n ? (dts[Math.min(n - 1, Math.floor(n * 0.95))] ?? 0) : 0,
+      worst: n ? (dts[n - 1] ?? 0) : 0,
+      costAvg: n ? sum(costs) / n : 0,
+      costWorst: n ? Math.max(...costs) : 0,
+      quality: this.budget.quality,
+      particles: this.fx.particles.count,
+      particlesDropped: this.fx.particles.dropped,
+    };
+  }
+
+  resetFrameStats(): void {
+    this.statCount = 0;
+    this.fx.particles.dropped = 0;
   }
 
   /** The board cell under a viewport point (e.g. a pointer event), or null. */
@@ -174,6 +297,7 @@ export class BoardRenderer {
 
   /** Shows a state instantly, with no animation (e.g. a restored save). */
   syncTo(state: GameState): void {
+    this.releaseHold();
     this.flushCues(true);
     this.view.syncTo(state);
     this.applyPendingMarks(true);
@@ -182,17 +306,21 @@ export class BoardRenderer {
 
   /** Jumps every running animation to its end and redraws. */
   settle(): void {
+    this.releaseHold();
     this.view.finish();
     this.flushCues(true);
     this.applyPendingMarks(true);
     this.effects.length = 0;
+    this.fx.clear();
     this.draw(this.clock.now());
     this.loop.invalidate();
   }
 
   isAnimating(): boolean {
     return (
-      this.view.isAnimating(this.clock.now()) ||
+      this.view.isAnimating(this.viewTimeNow()) ||
+      this.holding ||
+      this.fx.active ||
       this.effects.length > 0 ||
       this.pendingCues.length > 0 ||
       this.pendingMarks !== null
@@ -225,9 +353,30 @@ export class BoardRenderer {
 
   // ---------------------------------------------------------------- internals
 
+  /** View-clock time at real time `now` (behind real time by every hit-stop so far). */
+  private viewTime(now: number): number {
+    let t = now - this.viewOffset;
+    if (this.holdStart !== null) t -= Math.max(0, Math.min(now, this.holdEnd) - this.holdStart);
+    return t;
+  }
+
+  /** The view clock now (behind the real clock by every hit-stop so far). */
+  viewTimeNow(): number {
+    return this.viewTime(this.clock.now());
+  }
+
+  /** Ends a hit-stop (early or on time); the view clock carries on from where it held. */
+  private releaseHold(now = this.clock.now()): void {
+    if (this.holdStart === null) return;
+    this.viewOffset += Math.max(0, Math.min(now, this.holdEnd) - this.holdStart);
+    this.holdStart = null;
+    this.holdEnd = 0;
+  }
+
   private play(phases: RunStep['phases'], board: GameState): void {
     try {
-      this.pendingCues = this.view.apply(phases, this.clock.now());
+      // Cues fire in the order their effects land (merge pops are staggered).
+      this.pendingCues = this.view.apply(phases, this.viewTimeNow()).sort((a, b) => a.hit - b.hit);
     } catch (error) {
       // The view lost track of a tile; never let a display bug break the game.
       console.error(error);
@@ -237,18 +386,22 @@ export class BoardRenderer {
     this.loop.invalidate();
   }
 
-  /** Fires due cues (all of them when `all`, flagged late). */
-  private flushCues(all: boolean, now = this.clock.now()): void {
+  /** Fires due cues (all of them when `all`, flagged late). `now` is view time. */
+  private flushCues(all: boolean, now = this.viewTimeNow()): void {
+    if (this.pendingCues.length === 0) return;
+    const cues = this.pendingCues;
     let fired = 0;
-    for (const cue of this.pendingCues) {
-      if (!all && cue.at > now) break;
+    // A listener may start a hit-stop: cues after it wait for the view clock again.
+    while (fired < cues.length) {
+      const cue = cues[fired] as EventCue;
+      if (!all && (cue.hit > now || this.holding)) break;
       fired++;
       for (const listener of this.listeners) listener(cue, all);
     }
-    this.pendingCues = this.pendingCues.slice(fired);
+    this.pendingCues = cues === this.pendingCues ? cues.slice(fired) : this.pendingCues;
   }
 
-  private applyPendingMarks(force: boolean, now = this.clock.now()): void {
+  private applyPendingMarks(force: boolean, now = this.viewTimeNow()): void {
     const pending = this.pendingMarks;
     if (pending && (force || pending.at <= now)) {
       this.marks = pending.marks;
@@ -262,20 +415,33 @@ export class BoardRenderer {
   };
 
   private readonly tick = (now: number, dt: number): boolean => {
-    this.flushCues(false, now);
-    this.applyPendingMarks(false, now);
-    const viewBusy = this.view.update(now);
+    const t0 = this.perfNow();
+    if (this.holdStart !== null && now >= this.holdEnd) this.releaseHold(now);
+    const vt = this.viewTime(now);
+    this.flushCues(false, vt);
+    this.applyPendingMarks(false, vt);
+    const viewBusy = this.view.update(vt);
     for (let i = this.effects.length - 1; i >= 0; i--) {
-      if (!this.effects[i]?.update(dt, now)) this.effects.splice(i, 1);
+      if (!this.effects[i]?.update(dt, vt)) this.effects.splice(i, 1);
     }
+    // Particle density follows measured frame times (see FrameBudget).
+    this.budget.record(dt);
+    this.fx.density = this.budget.quality * (this.reducedMotion ? 0.25 : 1);
+    this.fx.update(dt);
     this.draw(now);
-    return (
+    const busy =
       viewBusy ||
+      this.holdStart !== null ||
+      this.fx.active ||
       this.effects.length > 0 ||
       this.pendingCues.length > 0 ||
-      this.pendingMarks !== null ||
-      marksAnimate(this.marks)
-    );
+      this.pendingMarks !== null;
+    if (dt > 0 && busy) {
+      const i = this.statCount++ % STATS_FRAMES;
+      this.statDt[i] = dt;
+      this.statCost[i] = this.perfNow() - t0;
+    }
+    return busy || marksAnimate(this.marks);
   };
 
   /** Matches the backing store to the CSS size times devicePixelRatio. */
@@ -290,6 +456,7 @@ export class BoardRenderer {
     }
     this.pixelRatio = pixels / cssSize;
     this.layout = computeLayout(cssSize, this.view.size);
+    this.fx.setLayout(this.layout);
     this.sprites.configure(this.layout.cell, this.layout.radius, this.pixelRatio);
     this.background = this.renderBackground(pixels);
     // Draw synchronously: resizing clears the canvas, and waiting a frame would flash.
@@ -306,8 +473,10 @@ export class BoardRenderer {
     return canvas;
   }
 
-  private draw(now: number): void {
+  /** Draws the frame at real time `now` (tiles and effects at the matching view time). */
+  private draw(realNow: number): void {
     const { ctx, layout, theme } = this;
+    const now = this.viewTime(realNow);
     const pr = this.pixelRatio;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
@@ -316,8 +485,9 @@ export class BoardRenderer {
     ctx.setTransform(pr, 0, 0, pr, 0, 0);
     if (!this.background) paintBoardBackground(ctx, layout, theme, pr);
 
-    let shakeX = 0;
-    let shakeY = 0;
+    const camera = this.fx.offset();
+    let shakeX = camera.x;
+    let shakeY = camera.y;
     for (const e of this.effects) {
       const o = e.offset?.(now);
       if (o) {
@@ -338,8 +508,10 @@ export class BoardRenderer {
         value: frame.value,
         emphasized: frame.popping,
       });
-      const size = sprite.cssSize * frame.scale;
-      ctx.drawImage(sprite.image, c.x - size / 2, c.y - size / 2, size, size);
+      // Squash and stretch: the cached image is simply drawn non-uniformly.
+      const w = sprite.cssSize * frame.scale * frame.sx;
+      const h = sprite.cssSize * frame.scale * frame.sy;
+      ctx.drawImage(sprite.image, c.x - w / 2, c.y - h / 2, w, h);
       for (const overlay of STATUS_OVERLAYS) {
         overlay({
           ctx,
@@ -355,6 +527,7 @@ export class BoardRenderer {
     }
     paintMarksAbove(ctx, layout, this.marks, theme, now, (id) => this.view.tilePosition(id, now));
     for (const e of this.effects) e.draw?.(ctx, layout, now);
+    this.fx.draw(ctx);
     ctx.restore();
   }
 }

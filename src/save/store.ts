@@ -33,13 +33,33 @@ export const RUN_SCHEMA = 1;
 export const PROFILE_MIGRATIONS: Readonly<Partial<Record<number, Migration>>> = {};
 export const RUN_MIGRATIONS: Readonly<Partial<Record<number, Migration>>> = {};
 
-/** Player options. Sound and haptics are read by stage 5's audio / vibration. */
+/** "Reduce motion": follow the device setting, or force it on / off. */
+export type MotionSetting = 'auto' | 'on' | 'off';
+export const MOTION_SETTINGS: readonly MotionSetting[] = ['auto', 'on', 'off'];
+
+/** Volume steps offered in the settings sheet. */
+export const VOLUME_LEVELS = [0.4, 0.7, 1] as const;
+
+/** Player options. */
 export interface Settings {
   readonly sound: boolean;
+  /** Master volume, 0..1. */
+  readonly volume: number;
   readonly haptics: boolean;
+  readonly reduceMotion: MotionSetting;
 }
 
-export const DEFAULT_SETTINGS: Settings = { sound: true, haptics: true };
+export const DEFAULT_SETTINGS: Settings = {
+  sound: true,
+  volume: 0.7,
+  haptics: true,
+  reduceMotion: 'auto',
+};
+
+/** Whether motion should be reduced, given the setting and the device preference. */
+export function motionReduced(setting: MotionSetting, systemPrefersReduced: boolean): boolean {
+  return setting === 'on' || (setting === 'auto' && systemPrefersReduced);
+}
 
 /** Best result of one day's challenge. */
 export interface DailyRecord {
@@ -92,11 +112,21 @@ function readHints(value: unknown): string[] {
 
 function readSettings(value: unknown): Settings {
   if (!isObject(value)) return DEFAULT_SETTINGS;
-  const pick = (key: keyof Settings): boolean => {
+  const flag = (key: 'sound' | 'haptics'): boolean => {
     const v = value[key];
     return typeof v === 'boolean' ? v : DEFAULT_SETTINGS[key];
   };
-  return { sound: pick('sound'), haptics: pick('haptics') };
+  const volume = value.volume;
+  const motion = value.reduceMotion;
+  return {
+    sound: flag('sound'),
+    volume:
+      typeof volume === 'number' && Number.isFinite(volume) && volume >= 0 && volume <= 1
+        ? volume
+        : DEFAULT_SETTINGS.volume,
+    haptics: flag('haptics'),
+    reduceMotion: MOTION_SETTINGS.find((m) => m === motion) ?? DEFAULT_SETTINGS.reduceMotion,
+  };
 }
 
 function isDailyRecord(value: unknown): value is DailyRecord {

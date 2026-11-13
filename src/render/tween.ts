@@ -24,6 +24,14 @@ export function easeOutBack(overshoot = 1.70158): Easing {
   return (t) => 1 + c3 * (t - 1) ** 3 + c1 * (t - 1) ** 2;
 }
 
+/**
+ * A damped spring settling on 1: overshoots, wobbles a little, comes to rest.
+ * Used for squash-and-stretch recovery, where a plain ease looks rubbery.
+ */
+export function easeOutSpring(damping = 6, frequency = 10): Easing {
+  return (t) => 1 - Math.exp(-damping * t) * Math.cos(frequency * t);
+}
+
 export function clamp(value: number, min: number, max: number): number {
   return value < min ? min : value > max ? max : value;
 }

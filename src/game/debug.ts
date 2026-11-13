@@ -17,6 +17,9 @@ import type {
   RunState,
   StartOptions,
 } from '../core';
+import type { SoundLogEntry } from '../audio/engine';
+import type { RenderedSound } from '../audio/webaudio';
+import type { FrameStats } from '../render/renderer';
 import type { RunController } from './runController';
 import { hudModel, isRelicId, type HudModel, type Hint, type ScreenModel } from './runView';
 
@@ -69,6 +72,21 @@ export interface DebugBoard {
   isAnimating(): boolean;
   /** Viewport coordinates of a cell's centre, for real pointer taps. */
   cellClientCenter?(row: number, col: number): { x: number; y: number };
+  frameStats?(): FrameStats;
+  resetFrameStats?(): void;
+}
+
+/** Feedback internals the debug API can inspect (stage 5). */
+export interface DebugFeedback {
+  /** Every sound request with its outcome (played, throttled, late, capped…). */
+  sounds(): readonly SoundLogEntry[];
+  /** Every vibration request and whether it was sent. */
+  haptics(): readonly { kind: string; t: number; sent: boolean }[];
+  /** Renders one sound offline and measures it (peak, RMS). */
+  renderSound(id: string, pitch?: number): Promise<RenderedSound>;
+  /** Renders several sounds together (`at` in s) to check stacking. */
+  renderMix(items: readonly { id: string; at?: number; pitch?: number }[]): Promise<RenderedSound>;
+  clearLogs(): void;
 }
 
 export interface DebugApi {
@@ -109,6 +127,11 @@ export interface DebugApi {
   pause(): void;
   /** Returns to the real clock. */
   resume(): void;
+  /** Frame-time statistics of the last animated frames, or null. */
+  frameStats(): FrameStats | null;
+  resetFrameStats(): void;
+  /** Sound / vibration logs and offline sound rendering, when wired. */
+  readonly feedback: DebugFeedback | null;
 }
 
 declare global {
@@ -121,6 +144,7 @@ export function createDebugApi(deps: {
   readonly controller: RunController;
   readonly board: DebugBoard;
   readonly clock: SteppableClock;
+  readonly feedback?: DebugFeedback;
 }): DebugApi {
   const { controller, board, clock } = deps;
   const requireRelic = (id: RelicId): void => {
@@ -192,5 +216,10 @@ export function createDebugApi(deps: {
     resume: () => {
       clock.resume();
     },
+    frameStats: () => board.frameStats?.() ?? null,
+    resetFrameStats: () => {
+      board.resetFrameStats?.();
+    },
+    feedback: deps.feedback ?? null,
   };
 }
