@@ -30,11 +30,13 @@ export const ACT1_STOPS: readonly {
   { name: '새벽 봉화대', x: 236, y: 70 },
 ];
 
-const INK = '#2b1d10';
-const GOLD = '#c8952c';
-const GOLD_LIGHT = '#f1d27a';
+const INK = '#2a1a10';
+const GOLD = '#d4a537';
+const GOLD_LIGHT = '#f6db7e';
 const EMBER = '#e2672a';
 const EMBER_HOT = '#ffd36b';
+const LAPIS = '#26479c';
+const VERMILION = '#c4381c';
 
 const ROAD =
   'M40 336 C52 320 58 312 64 300 C76 276 112 268 128 246 C142 226 96 196 102 168 C106 146 150 140 170 120 C188 102 210 92 236 70';
@@ -67,7 +69,7 @@ function defs(): string {
     </filter>
     <filter id="jm-cloud" x="-10%" y="-10%" width="120%" height="120%">
       <feTurbulence type="fractalNoise" baseFrequency="0.018 0.03" numOctaves="4" seed="3" result="n"/>
-      <feColorMatrix in="n" type="matrix" values="0 0 0 0 0.16  0 0 0 0 0.12  0 0 0 0 0.12  0 0 0 1.6 -0.35" result="c"/>
+      <feColorMatrix in="n" type="matrix" values="0 0 0 0 0.12  0 0 0 0 0.13  0 0 0 0 0.27  0 0 0 1.6 -0.35" result="c"/>
       <feComposite in="c" in2="SourceGraphic" operator="in"/>
     </filter>
     <radialGradient id="jm-glow">
@@ -81,8 +83,8 @@ function defs(): string {
     </radialGradient>
     <clipPath id="jm-clip"><rect x="12" y="12" width="276" height="336" rx="3"/></clipPath>
     <linearGradient id="jm-sea" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#b9d3cc"/>
-      <stop offset="1" stop-color="#93bab3"/>
+      <stop offset="0" stop-color="#b9c8ec"/>
+      <stop offset="1" stop-color="#7f9bd8"/>
     </linearGradient>
   </defs>`;
 }
@@ -97,16 +99,16 @@ function sea(): string {
     waves += `M${n(x)} ${n(y)} q3 -3 6 0 q3 3 6 0 `;
   }
   return `<path d="${coast}" fill="url(#jm-sea)"/>
-    <path d="M0 250 C22 246 30 262 26 280 C22 300 40 312 34 330 C30 344 48 352 60 360" fill="none" stroke="#7fa9a0" stroke-width="5" opacity="0.6"/>
+    <path d="M0 250 C22 246 30 262 26 280 C22 300 40 312 34 330 C30 344 48 352 60 360" fill="none" stroke="#6f8fd6" stroke-width="5" opacity="0.6"/>
     <path d="M0 250 C22 246 30 262 26 280 C22 300 40 312 34 330 C30 344 48 352 60 360" fill="none" stroke="${INK}" stroke-width="1.6"/>
-    <path d="${waves}" fill="none" stroke="#4f7f78" stroke-width="1" stroke-linecap="round"/>`;
+    <path d="${waves}" fill="none" stroke="#26479c" stroke-width="1" stroke-linecap="round"/>`;
 }
 
 function river(): string {
   const d =
     'M300 150 C270 156 252 140 226 150 C200 160 214 186 186 196 C160 206 150 186 132 198 C112 212 120 236 98 252 C80 266 62 262 46 276 C36 284 30 290 26 280';
   return `<path d="${d}" fill="none" stroke="${INK}" stroke-width="7.5" stroke-linecap="round"/>
-    <path d="${d}" fill="none" stroke="#8fbcd0" stroke-width="5" stroke-linecap="round"/>
+    <path d="${d}" fill="none" stroke="#4f74c9" stroke-width="5" stroke-linecap="round"/>
     <path d="${d}" fill="none" stroke="#d8edf3" stroke-width="1" stroke-dasharray="6 9" stroke-linecap="round"/>`;
 }
 
@@ -156,8 +158,8 @@ function forest(cx: number, cy: number, count: number, seed: number, spread: num
     .map(
       ([x, y]) =>
         `<path d="M${n(x)} ${n(y + 7)} V${n(y + 2)}" stroke="${INK}" stroke-width="1.4"/>
-        <circle cx="${n(x)}" cy="${n(y)}" r="5.2" fill="#6f8a4a" stroke="${INK}" stroke-width="1.2"/>
-        <path d="M${n(x - 2.5)} ${n(y - 1.5)} a3 3 0 0 1 3.5 -2" fill="none" stroke="#a9bd78" stroke-width="1.2"/>`,
+        <circle cx="${n(x)}" cy="${n(y)}" r="5.2" fill="#3d8a6c" stroke="${INK}" stroke-width="1.2"/>
+        <path d="M${n(x - 2.5)} ${n(y - 1.5)} a3 3 0 0 1 3.5 -2" fill="none" stroke="#8cc2a8" stroke-width="1.2"/>`,
     )
     .join('');
 }
@@ -165,7 +167,7 @@ function forest(cx: number, cy: number, count: number, seed: number, spread: num
 function fields(): string {
   return `<path d="M150 318 L196 300 L222 326 L178 344 Z" fill="#e6d38f" stroke="${INK}" stroke-width="1" opacity="0.9"/>
     <path d="M160 320 L200 305 M166 328 L206 312 M172 336 L212 320" stroke="#a88f45" stroke-width="1" stroke-dasharray="2 3"/>
-    <path d="M226 300 L262 292 L276 318 L240 328 Z" fill="#c9d38f" stroke="${INK}" stroke-width="1" opacity="0.9"/>`;
+    <path d="M226 300 L262 292 L276 318 L240 328 Z" fill="#bcd8b0" stroke="${INK}" stroke-width="1" opacity="0.9"/>`;
 }
 
 function compass(x: number, y: number): string {
@@ -239,10 +241,10 @@ function partyMarker(x: number, y: number): string {
 function stopMarker(i: number, reached: boolean, current: boolean): string {
   const s = ACT1_STOPS[i];
   if (!s) return '';
-  const fill = reached ? GOLD : '#fbf4e2';
+  const fill = reached ? VERMILION : '#fbf4e2';
   return `<g class="jm-stop${current ? ' is-current' : ''}">
     <circle cx="${s.x}" cy="${s.y}" r="7.5" fill="${fill}" stroke="${INK}" stroke-width="1.8"/>
-    <text x="${s.x}" y="${s.y + 3.4}" text-anchor="middle" class="jm-num">${i + 1}</text>
+    <text x="${s.x}" y="${s.y + 3.4}" text-anchor="middle" class="jm-num${reached ? ' is-done' : ''}">${i + 1}</text>
     <text x="${s.x + 11}" y="${s.y - 8}" class="jm-label">${s.name}</text>
   </g>`;
 }
@@ -262,9 +264,44 @@ function fog(state: JourneyState): string {
     holes.push('<circle cx="252" cy="190" r="60" fill="url(#jm-hole)"/>');
   return `<mask id="jm-fog-mask"><rect x="0" y="0" width="300" height="360" fill="#fff"/>${holes.join('')}</mask>
     <g mask="url(#jm-fog-mask)" class="jm-fog">
-      <rect x="0" y="0" width="300" height="360" fill="#3a2e28" opacity="0.62"/>
+      <rect x="0" y="0" width="300" height="360" fill="#1c2149" opacity="0.6"/>
       <rect x="0" y="0" width="300" height="360" fill="#fff" filter="url(#jm-cloud)"/>
     </g>`;
+}
+
+/**
+ * A manuscript border: a gold band with lapis studs, ink rules and a red
+ * inner ruling, with a lapis-and-gold quatrefoil in each corner.
+ */
+function border(): string {
+  const studs: string[] = [];
+  for (let x = 30; x <= 270; x += 20)
+    studs.push(
+      `<rect x="${x - 2}" y="7" width="4" height="4" fill="${LAPIS}"/>`,
+      `<rect x="${x - 2}" y="349" width="4" height="4" fill="${LAPIS}"/>`,
+    );
+  for (let y = 30; y <= 330; y += 20)
+    studs.push(
+      `<rect x="7" y="${y - 2}" width="4" height="4" fill="${LAPIS}"/>`,
+      `<rect x="289" y="${y - 2}" width="4" height="4" fill="${LAPIS}"/>`,
+    );
+  const corner = (cx: number, cy: number): string => {
+    const lobes = [0, 1, 2, 3]
+      .map((i) => {
+        const a = (i / 4) * Math.PI * 2;
+        return `<circle cx="${n(cx + Math.cos(a) * 3.2)}" cy="${n(cy + Math.sin(a) * 3.2)}" r="3" fill="${GOLD_LIGHT}"/>`;
+      })
+      .join('');
+    return `<rect x="${cx - 9}" y="${cy - 9}" width="18" height="18" fill="${GOLD}" stroke="${INK}" stroke-width="1"/>
+      <rect x="${cx - 6.5}" y="${cy - 6.5}" width="13" height="13" fill="${LAPIS}" stroke="${INK}" stroke-width="0.8"/>
+      ${lobes}<circle cx="${cx}" cy="${cy}" r="1.8" fill="${VERMILION}"/>`;
+  };
+  return `<rect x="9" y="9" width="282" height="342" fill="none" stroke="${GOLD}" stroke-width="6"/>
+    <rect x="6" y="6" width="288" height="348" fill="none" stroke="${INK}" stroke-width="1"/>
+    <rect x="12" y="12" width="276" height="336" fill="none" stroke="${INK}" stroke-width="1"/>
+    <rect x="14.5" y="14.5" width="271" height="331" fill="none" stroke="${VERMILION}" stroke-width="0.8"/>
+    ${studs.join('')}
+    ${corner(9, 9)}${corner(291, 9)}${corner(9, 351)}${corner(291, 351)}`;
 }
 
 /** The whole act 1 map as an SVG string. */
@@ -282,7 +319,7 @@ export function journeyMapSvg(state: JourneyState): string {
   return `<svg class="journey-map" viewBox="0 0 300 360" role="img" aria-label="1막 여정 지도">
     ${defs()}
     <g filter="url(#jm-rough)">
-      <rect x="4" y="4" width="292" height="352" rx="6" fill="#f2e3c2"/>
+      <rect x="4" y="4" width="292" height="352" rx="6" fill="#f3e2bd"/>
     </g>
     <g clip-path="url(#jm-clip)">
     <g class="jm-land">
@@ -296,7 +333,7 @@ export function journeyMapSvg(state: JourneyState): string {
       ${mountains()}
     </g>
     <path d="${ROAD}" fill="none" stroke="#fbf4e2" stroke-width="5" stroke-linecap="round"/>
-    <path d="${ROAD}" fill="none" stroke="${INK}" stroke-width="1.8" stroke-dasharray="5 4" stroke-linecap="round"/>
+    <path d="${ROAD}" fill="none" stroke="${VERMILION}" stroke-width="1.8" stroke-dasharray="5 4" stroke-linecap="round"/>
     ${stops}
     ${beaconTower(tower.x, tower.y + 8, state.beaconLit)}
     <text x="${tower.x - 6}" y="${tower.y + 22}" text-anchor="middle" class="jm-label jm-label-major">새벽 봉화대</text>
@@ -306,9 +343,8 @@ export function journeyMapSvg(state: JourneyState): string {
     ${partyMarker(px, py)}
     ${companion ? `<g class="jm-companion" transform="translate(${n(px - 28)} ${n(py - 24)}) scale(0.24)">${DWARF_FIGURE.map(layerSvg).join('')}</g>` : ''}
     </g>
-    <rect x="4" y="4" width="292" height="352" rx="6" fill="#f2e3c2" filter="url(#jm-paper)" opacity="0.55" style="mix-blend-mode:multiply" pointer-events="none"/>
-    <rect x="9" y="9" width="282" height="342" rx="4" fill="none" stroke="${GOLD}" stroke-width="2.5"/>
-    <rect x="12.5" y="12.5" width="275" height="335" rx="3" fill="none" stroke="${INK}" stroke-width="1"/>
+    <rect x="4" y="4" width="292" height="352" rx="6" fill="#f3e2bd" filter="url(#jm-paper)" opacity="0.55" style="mix-blend-mode:multiply" pointer-events="none"/>
+    ${border()}
   </svg>`;
 }
 

@@ -211,10 +211,10 @@ export class BoardRenderer {
   setScenery(scenery: Scenery, revealMs = 0): void {
     if (sceneryKey(scenery) === sceneryKey(this.scenery)) return;
     this.scenery = scenery;
-    const pixels = this.canvas.width;
-    if (pixels <= 0 || this.layout.size <= 1) return;
+    const { width, height } = this.canvas;
+    if (width <= 0 || this.layout.size <= 1) return;
     const old = this.background;
-    this.background = this.renderBackground(pixels);
+    this.background = this.renderBackground(width, height);
     this.reveal =
       old && revealMs > 0 && !this.reducedMotion
         ? { image: old, start: this.viewTimeNow(), duration: revealMs }
@@ -490,21 +490,30 @@ export class BoardRenderer {
     return busy || marksAnimate(this.marks);
   };
 
-  /** Matches the backing store to the CSS size times devicePixelRatio. */
+  /**
+   * Matches the backing store to the CSS size times devicePixelRatio. A square
+   * theme uses the largest square that fits; a theme with scenery bands takes
+   * the box the page CSS gave it (taller than wide when there is room).
+   */
   private resize(): void {
-    const cssSize = Math.min(this.canvas.clientWidth, this.canvas.clientHeight);
-    if (cssSize <= 0) return;
+    const banded = this.theme.layout.bands !== undefined;
+    const cssW = banded
+      ? this.canvas.clientWidth
+      : Math.min(this.canvas.clientWidth, this.canvas.clientHeight);
+    const cssH = banded ? this.canvas.clientHeight : cssW;
+    if (cssW <= 0 || cssH <= 0) return;
     const dpr = window.devicePixelRatio || 1;
-    const pixels = Math.round(cssSize * dpr);
-    if (this.canvas.width !== pixels || this.canvas.height !== pixels) {
-      this.canvas.width = pixels;
-      this.canvas.height = pixels;
+    const pw = Math.round(cssW * dpr);
+    const ph = Math.round(cssH * dpr);
+    if (this.canvas.width !== pw || this.canvas.height !== ph) {
+      this.canvas.width = pw;
+      this.canvas.height = ph;
     }
-    this.pixelRatio = pixels / cssSize;
-    this.layout = computeLayout(cssSize, this.view.size, this.theme.layout);
+    this.pixelRatio = pw / cssW;
+    this.layout = computeLayout(cssW, this.view.size, this.theme.layout, ph / this.pixelRatio);
     this.fx.setLayout(this.layout);
     this.sprites.configure(this.layout.cell, this.layout.radius, this.pixelRatio);
-    this.background = this.renderBackground(pixels);
+    this.background = this.renderBackground(pw, ph);
     this.reveal = null;
     // Draw synchronously: resizing clears the canvas, and waiting a frame would flash.
     this.draw(this.clock.now());
@@ -514,8 +523,11 @@ export class BoardRenderer {
    * The static board (plate, slots, frame and its scenery) is drawn once per
    * size / theme / scenery, like tile sprites.
    */
-  private renderBackground(pixels: number): HTMLCanvasElement | OffscreenCanvas | null {
-    const canvas = this.createCanvas(pixels, pixels);
+  private renderBackground(
+    pw: number,
+    ph: number = pw,
+  ): HTMLCanvasElement | OffscreenCanvas | null {
+    const canvas = this.createCanvas(pw, ph);
     const ctx = canvas.getContext('2d');
     if (!ctx) return null;
     ctx.setTransform(this.pixelRatio, 0, 0, this.pixelRatio, 0, 0);

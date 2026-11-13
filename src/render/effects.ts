@@ -6,7 +6,7 @@
  * same cue hook (`BoardRenderer.onCue`).
  */
 import type { LineAxis, TurnEvent } from '../core';
-import { cellCenter, type BoardLayout } from './layout';
+import { cellCenter, gridExtent, type BoardLayout } from './layout';
 import { lineRect } from './marks';
 import type { Theme } from './theme';
 import { roundRectPath } from './tilePainter';
@@ -116,17 +116,11 @@ export class BoardFlash extends TimedEffect {
     if (now < this.start) return;
     const t = this.t(now);
     // Just outside the grid (inside a wide storybook frame, near the edge on neon).
-    const inset = layout.padding - layout.gap * 0.7;
+    const out = layout.gap * 0.7;
+    const side = gridExtent(layout) + out * 2;
     ctx.save();
     ctx.strokeStyle = this.color;
-    roundRectPath(
-      ctx,
-      inset,
-      inset,
-      layout.size - inset * 2,
-      layout.size - inset * 2,
-      layout.boardRadius,
-    );
+    roundRectPath(ctx, layout.padding - out, layout.originY - out, side, side, layout.boardRadius);
     ctx.globalAlpha = 0.3 * (1 - t);
     ctx.lineWidth = layout.gap * (1.6 + 1.2 * (1 - t));
     ctx.stroke();

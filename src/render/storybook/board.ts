@@ -1,41 +1,123 @@
 /**
- * Storybook board painters: a walnut tray with carved sockets, set on a
- * parchment frame with a gold-leaf border, and the board marks restyled —
- * the sealed line is chained, the boss target is branded with crimson ink
- * brackets, badges are wax seals.
+ * Storybook board painters, illuminated-manuscript style: the board is a
+ * painted panel on a vellum page — a lapis ground with a gold diaper
+ * pattern in a burnished gold frame — inside a gilded page border with vine
+ * margins and corner pieces. Above and below the panel the page has scenery
+ * bands (see sceneryArt.ts). The marks are restyled to match: the sealed line
+ * is chained, the boss target branded with vermilion brackets, badges are seals.
  */
-import { cellCenter, cellOrigin, type BoardLayout } from '../layout';
+import { cellCenter, cellOrigin, gridExtent, type BoardLayout } from '../layout';
 import { lineRect, type BoardMarks } from '../marks';
 import type { Scenery } from '../scenery';
 import type { BoardArt, Theme } from '../theme';
 import { roundRectPath, type AnyContext2D } from '../tilePainter';
-import { hatch, sealBadge, seeded, speckle, wobblyRoundRect } from './ink';
+import { blobPath, hatch, sealBadge, seeded, speckle } from './ink';
 import {
   CRIMSON,
   CRIMSON_LIGHT,
   GOLD,
-  GOLD_DARK,
   GOLD_LIGHT,
   INK,
-  IRON,
+  LAPIS,
+  LAPIS_DEEP,
   PARCHMENT,
   PARCHMENT_DEEP,
   PARCHMENT_LIGHT,
   PARCHMENT_SHADE,
   SOCKET,
-  WOOD,
-  WOOD_DARK,
-  WOOD_LIGHT,
+  VERDIGRIS,
+  VERMILION,
 } from './palette';
-import { bloom, paintSceneryBehind, paintSceneryFront, type Frame } from './sceneryArt';
+import { goldLeaf } from './tiles';
+import { paintScenery, type Frame } from './sceneryArt';
 
-/** Width of the tray's rim beyond the outer sockets, as a fraction of a cell. */
+/** Width of the panel's gold frame beyond the outer cells, as a fraction of a cell. */
 const RIM = 0.1;
 
-/** Where the frame band ends and the tray begins. */
+/** Where the page border, the margins, the panel and the bands are. */
 export function frameOf(layout: BoardLayout): Frame {
-  const band = Math.max(4, layout.padding - layout.cell * RIM);
-  return { size: layout.size, band, border: Math.max(3, layout.size * 0.016) };
+  const rim = layout.cell * RIM;
+  const grid = gridExtent(layout);
+  return {
+    width: layout.size,
+    height: layout.height,
+    border: Math.max(3, Math.min(layout.size, layout.height) * 0.014),
+    panelX: layout.padding - rim,
+    panelTop: layout.originY - rim,
+    panelBottom: layout.originY + grid + rim,
+    panelSize: grid + rim * 2,
+    cell: layout.cell,
+  };
+}
+
+/** A sinuous vine with leaves, buds and gold dots along a vertical margin (own design). */
+function vine(ctx: AnyContext2D, x: number, y0: number, y1: number, w: number, seed: number): void {
+  if (y1 - y0 < w * 2 || w < 4) return;
+  const rnd = seeded(seed);
+  const amp = w * 0.28;
+  const wave = w * 3.6;
+  ctx.save();
+  ctx.lineCap = 'round';
+  ctx.strokeStyle = GOLD;
+  ctx.lineWidth = Math.max(1, w * 0.08);
+  ctx.beginPath();
+  for (let y = y0; y <= y1; y += 2) {
+    const px = x + Math.sin(((y - y0) / wave) * Math.PI * 2) * amp;
+    if (y === y0) ctx.moveTo(px, y);
+    else ctx.lineTo(px, y);
+  }
+  ctx.stroke();
+  let side = 1;
+  for (let y = y0 + wave * 0.25; y < y1 - w * 0.3; y += wave / 2) {
+    const px = x + Math.sin(((y - y0) / wave) * Math.PI * 2) * amp;
+    const lx = px + side * w * 0.24;
+    // Leaf.
+    ctx.beginPath();
+    ctx.ellipse(lx, y - w * 0.1, w * 0.22, w * 0.1, side * 0.7, 0, Math.PI * 2);
+    ctx.fillStyle = VERDIGRIS;
+    ctx.fill();
+    ctx.lineWidth = Math.max(0.6, w * 0.04);
+    ctx.strokeStyle = INK;
+    ctx.stroke();
+    // Bud or gold dot on the other side.
+    const bx = px - side * w * 0.2;
+    ctx.beginPath();
+    ctx.arc(bx, y + w * 0.12, w * (rnd() < 0.5 ? 0.09 : 0.07), 0, Math.PI * 2);
+    ctx.fillStyle = rnd() < 0.5 ? VERMILION : GOLD;
+    ctx.fill();
+    ctx.stroke();
+    side = -side;
+  }
+  ctx.restore();
+}
+
+/** A gilded corner piece: a lapis square with a gold quatrefoil. */
+function cornerPiece(ctx: AnyContext2D, cx: number, cy: number, r: number): void {
+  ctx.save();
+  ctx.lineJoin = 'round';
+  ctx.fillStyle = goldLeaf(ctx, cx - r, cy - r, r * 2);
+  ctx.fillRect(cx - r, cy - r, r * 2, r * 2);
+  ctx.lineWidth = Math.max(1, r * 0.1);
+  ctx.strokeStyle = INK;
+  ctx.strokeRect(cx - r, cy - r, r * 2, r * 2);
+  ctx.fillStyle = LAPIS;
+  ctx.fillRect(cx - r * 0.72, cy - r * 0.72, r * 1.44, r * 1.44);
+  ctx.strokeRect(cx - r * 0.72, cy - r * 0.72, r * 1.44, r * 1.44);
+  // Quatrefoil: four lobes round a centre.
+  ctx.fillStyle = GOLD_LIGHT;
+  for (let i = 0; i < 4; i++) {
+    const a = (i / 4) * Math.PI * 2;
+    ctx.beginPath();
+    ctx.arc(cx + Math.cos(a) * r * 0.26, cy + Math.sin(a) * r * 0.26, r * 0.24, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.beginPath();
+  ctx.arc(cx, cy, r * 0.16, 0, Math.PI * 2);
+  ctx.fillStyle = VERMILION;
+  ctx.fill();
+  ctx.lineWidth = Math.max(0.6, r * 0.06);
+  ctx.stroke();
+  ctx.restore();
 }
 
 function background(
@@ -45,167 +127,136 @@ function background(
   _pixelRatio: number,
   scenery: Scenery,
 ): void {
-  const S = layout.size;
+  const W = layout.size;
+  const H = layout.height;
   const f = frameOf(layout);
-  const rnd = seeded(2048);
+  const b = f.border;
   ctx.save();
-
-  // Parchment.
-  roundRectPath(ctx, 0, 0, S, S, layout.boardRadius);
+  roundRectPath(ctx, 0, 0, W, H, layout.boardRadius);
   ctx.clip();
-  const paper = ctx.createRadialGradient(S * 0.45, S * 0.4, S * 0.1, S / 2, S / 2, S * 0.75);
+
+  // Vellum, aged towards the edges.
+  const paper = ctx.createRadialGradient(
+    W * 0.45,
+    H * 0.42,
+    Math.min(W, H) * 0.1,
+    W / 2,
+    H / 2,
+    Math.max(W, H) * 0.75,
+  );
   paper.addColorStop(0, PARCHMENT_LIGHT);
-  paper.addColorStop(0.65, PARCHMENT);
+  paper.addColorStop(0.6, PARCHMENT);
   paper.addColorStop(1, PARCHMENT_SHADE);
   ctx.fillStyle = paper;
-  ctx.fillRect(0, 0, S, S);
-  // Watercolour blooms and grain (texture without assets: many cheap seeded marks).
-  ctx.globalAlpha = 0.18;
-  bloom(ctx, S * 0.08, S * 0.9, S * 0.12, PARCHMENT_DEEP, 3);
-  bloom(ctx, S * 0.95, S * 0.12, S * 0.1, PARCHMENT_DEEP, 5);
-  bloom(ctx, S * 0.6, S * 0.02, S * 0.08, PARCHMENT_DEEP, 9);
+  ctx.fillRect(0, 0, W, H);
+  ctx.globalAlpha = 0.16;
+  const rb = seeded(3);
+  for (const [bx, by, br] of [
+    [0.08, 0.9, 0.14],
+    [0.95, 0.1, 0.12],
+    [0.6, 0.02, 0.09],
+  ] as const) {
+    const radii = Array.from({ length: 9 }, () => 0.75 + rb() * 0.4);
+    ctx.fillStyle = PARCHMENT_DEEP;
+    blobPath(ctx, W * bx, H * by, W * br, W * br * 0.8, radii, rb() * 6);
+    ctx.fill();
+  }
   ctx.globalAlpha = 1;
   speckle(
     ctx,
-    rnd,
+    seeded(2048),
     0,
     0,
-    S,
-    S,
-    Math.round((S * S) / 90),
+    W,
+    H,
+    Math.round((W * H) / 90),
     ['#8a6a3e', '#6b4f2c', '#ffffff'],
     [0.5, 1.4],
     [0.06, 0.2],
   );
-  // Burnt edge.
-  const burn = ctx.createRadialGradient(S / 2, S / 2, S * 0.42, S / 2, S / 2, S * 0.74);
-  burn.addColorStop(0, 'rgba(120, 76, 30, 0)');
-  burn.addColorStop(1, 'rgba(120, 76, 30, 0.35)');
-  ctx.fillStyle = burn;
-  ctx.fillRect(0, 0, S, S);
 
-  // Gold-leaf border: ink rule, gold band, ink rule.
-  const b = f.border;
+  // Gilded page border: ink rule, gold leaf, ink rule, then a red (rubric) ruling inside.
   ctx.lineJoin = 'round';
-  roundRectPath(ctx, b * 0.35, b * 0.35, S - b * 0.7, S - b * 0.7, layout.boardRadius);
-  ctx.lineWidth = b * 0.7;
-  const leaf = ctx.createLinearGradient(0, 0, S, S);
-  leaf.addColorStop(0, GOLD_LIGHT);
-  leaf.addColorStop(0.3, GOLD);
-  leaf.addColorStop(0.55, GOLD_LIGHT);
-  leaf.addColorStop(0.8, GOLD);
-  leaf.addColorStop(1, GOLD_DARK);
-  ctx.strokeStyle = leaf;
+  ctx.lineWidth = b * 0.9;
+  ctx.strokeStyle = goldLeaf(ctx, 0, 0, Math.max(W, H));
+  roundRectPath(ctx, b * 0.45, b * 0.45, W - b * 0.9, H - b * 0.9, layout.boardRadius);
   ctx.stroke();
   ctx.lineWidth = Math.max(1, b * 0.18);
   ctx.strokeStyle = INK;
-  roundRectPath(ctx, b * 0.7, b * 0.7, S - b * 1.4, S - b * 1.4, layout.boardRadius * 0.8);
+  roundRectPath(ctx, 0.5, 0.5, W - 1, H - 1, layout.boardRadius);
   ctx.stroke();
-  roundRectPath(ctx, 0.5, 0.5, S - 1, S - 1, layout.boardRadius);
+  roundRectPath(ctx, b * 0.9, b * 0.9, W - b * 1.8, H - b * 1.8, layout.boardRadius * 0.6);
   ctx.stroke();
-  // Corner knots.
-  for (const [x, y] of [
-    [b * 0.7, b * 0.7],
-    [S - b * 0.7, b * 0.7],
-    [b * 0.7, S - b * 0.7],
-    [S - b * 0.7, S - b * 0.7],
-  ] as const) {
-    const k = b * 1.3;
-    ctx.beginPath();
-    ctx.moveTo(x, y - k);
-    ctx.lineTo(x + k, y);
-    ctx.lineTo(x, y + k);
-    ctx.lineTo(x - k, y);
-    ctx.closePath();
-    ctx.fillStyle = GOLD;
-    ctx.fill();
-    ctx.lineWidth = Math.max(1, b * 0.2);
-    ctx.strokeStyle = INK;
-    ctx.stroke();
-  }
+  ctx.lineWidth = Math.max(0.8, b * 0.14);
+  ctx.strokeStyle = VERMILION;
+  ctx.strokeRect(b * 1.5, b * 1.5, W - b * 3, H - b * 3);
 
-  paintSceneryBehind(ctx, f, scenery);
-
-  // The walnut tray.
-  const t = f.band;
-  const w = S - t * 2;
-  ctx.save();
-  wobblyRoundRect(ctx, t + 1.5, t + 3, w, w, layout.cell * 0.16, 0, seeded(1));
-  ctx.fillStyle = 'rgba(43, 29, 16, 0.45)';
-  ctx.fill();
-  wobblyRoundRect(
+  // Vine margins beside the panel.
+  const margin = f.panelX - b * 1.5;
+  vine(
     ctx,
-    t,
-    t,
-    w,
-    w,
-    layout.cell * 0.16,
-    layout.cell * 0.006,
-    seeded(12),
-    layout.cell * 0.2,
+    (b * 1.5 + f.panelX) / 2,
+    f.panelTop + margin * 0.2,
+    f.panelBottom - margin * 0.2,
+    margin,
+    5,
   );
-  const wood = ctx.createLinearGradient(t, t, t, t + w);
-  wood.addColorStop(0, WOOD_LIGHT);
-  wood.addColorStop(0.5, WOOD);
-  wood.addColorStop(1, WOOD_DARK);
-  ctx.fillStyle = wood;
-  ctx.fill();
+  vine(
+    ctx,
+    W - (b * 1.5 + f.panelX) / 2,
+    f.panelTop + margin * 0.2,
+    f.panelBottom - margin * 0.2,
+    margin,
+    9,
+  );
+
+  // The painted panel: lapis ground, gold diaper, burnished gold frame.
+  const px = f.panelX;
+  const py = f.panelTop;
+  const ps = f.panelSize;
   ctx.save();
+  ctx.fillStyle = 'rgba(20, 12, 30, 0.4)';
+  ctx.fillRect(px + 1.5, py + 3, ps, ps);
+  const ground = ctx.createLinearGradient(px, py, px, py + ps);
+  ground.addColorStop(0, LAPIS);
+  ground.addColorStop(1, LAPIS_DEEP);
+  ctx.fillStyle = ground;
+  ctx.fillRect(px, py, ps, ps);
+  ctx.beginPath();
+  ctx.rect(px, py, ps, ps);
   ctx.clip();
-  // Grain: long wavy strokes across the planks.
-  const grain = seeded(64);
-  ctx.lineWidth = Math.max(0.6, layout.cell * 0.012);
-  for (let y = t; y < t + w; y += layout.cell * 0.07) {
-    ctx.strokeStyle = grain() < 0.5 ? 'rgba(40, 22, 8, 0.28)' : 'rgba(255, 220, 170, 0.1)';
-    ctx.beginPath();
-    const amp = layout.cell * (0.01 + grain() * 0.03);
-    const phase = grain() * 6;
-    for (let x = t; x <= t + w; x += layout.cell * 0.1) {
-      const yy = y + Math.sin(phase + x / (layout.cell * 0.7)) * amp;
-      if (x === t) ctx.moveTo(x, yy);
-      else ctx.lineTo(x, yy);
-    }
-    ctx.stroke();
+  const step = layout.cell * 0.32;
+  ctx.strokeStyle = 'rgba(246, 219, 126, 0.22)';
+  ctx.lineWidth = Math.max(0.6, layout.cell * 0.01);
+  ctx.beginPath();
+  for (let i = -ps; i <= ps * 2; i += step) {
+    ctx.moveTo(px + i, py);
+    ctx.lineTo(px + i + ps, py + ps);
+    ctx.moveTo(px + i + ps, py);
+    ctx.lineTo(px + i, py + ps);
   }
-  // A knot or two.
-  ctx.strokeStyle = 'rgba(40, 22, 8, 0.35)';
-  for (const [kx, ky] of [
-    [0.82, 0.12],
-    [0.15, 0.7],
-  ] as const) {
-    for (let r = 1; r <= 3; r++) {
-      ctx.beginPath();
-      ctx.ellipse(
-        t + w * kx,
-        t + w * ky,
-        layout.cell * 0.05 * r,
-        layout.cell * 0.025 * r,
-        0,
-        0,
-        Math.PI * 2,
-      );
-      ctx.stroke();
-    }
-  }
-  ctx.restore();
-  wobblyRoundRect(
-    ctx,
-    t,
-    t,
-    w,
-    w,
-    layout.cell * 0.16,
-    layout.cell * 0.006,
-    seeded(12),
-    layout.cell * 0.2,
-  );
-  ctx.lineWidth = Math.max(1.5, layout.cell * 0.035);
-  ctx.strokeStyle = INK;
   ctx.stroke();
+  ctx.fillStyle = 'rgba(246, 219, 126, 0.4)';
+  for (let yy = py; yy < py + ps; yy += step) {
+    for (let xx = px + step / 2; xx < px + ps; xx += step) {
+      ctx.beginPath();
+      ctx.arc(xx, yy, layout.cell * 0.018, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
   ctx.restore();
+  const fw = layout.cell * RIM * 0.9;
+  ctx.lineWidth = fw;
+  ctx.strokeStyle = goldLeaf(ctx, px, py, ps);
+  ctx.strokeRect(px + fw / 2, py + fw / 2, ps - fw, ps - fw);
+  ctx.lineWidth = Math.max(1.2, layout.cell * 0.025);
+  ctx.strokeStyle = INK;
+  ctx.strokeRect(px, py, ps, ps);
+  ctx.lineWidth = Math.max(0.8, layout.cell * 0.012);
+  ctx.strokeRect(px + fw, py + fw, ps - fw * 2, ps - fw * 2);
 
-  // Carved sockets.
-  const rr = layout.cell * 0.18;
+  // Sockets: a deeper lapis well with a thin gold rule and a faint quatrefoil.
+  const rr = layout.cell * 0.1;
   for (let row = 0; row < layout.gridSize; row++) {
     for (let col = 0; col < layout.gridSize; col++) {
       const o = cellOrigin(layout, row, col);
@@ -215,31 +266,43 @@ function background(
       ctx.fill();
       ctx.save();
       ctx.clip();
-      // Inner shadow from the upper-left edge.
       roundRectPath(ctx, o.x - c * 0.06, o.y - c * 0.06, c + c * 0.04, c + c * 0.04, rr);
-      ctx.lineWidth = c * 0.12;
-      ctx.strokeStyle = 'rgba(20, 10, 2, 0.55)';
-      ctx.stroke();
-      // A faint carved ring in the middle.
-      ctx.beginPath();
-      ctx.arc(o.x + c / 2, o.y + c / 2, c * 0.2, 0, Math.PI * 2);
-      ctx.lineWidth = Math.max(0.8, c * 0.025);
-      ctx.strokeStyle = 'rgba(255, 220, 170, 0.08)';
+      ctx.lineWidth = c * 0.1;
+      ctx.strokeStyle = 'rgba(5, 8, 30, 0.55)';
       ctx.stroke();
       ctx.restore();
-      // Lit lower-right lip.
-      ctx.beginPath();
-      ctx.moveTo(o.x + rr, o.y + c);
-      ctx.lineTo(o.x + c - rr, o.y + c);
-      ctx.quadraticCurveTo(o.x + c, o.y + c, o.x + c, o.y + c - rr);
-      ctx.lineTo(o.x + c, o.y + rr);
-      ctx.lineWidth = Math.max(0.8, c * 0.018);
-      ctx.strokeStyle = 'rgba(255, 220, 170, 0.22)';
+      roundRectPath(ctx, o.x + c * 0.08, o.y + c * 0.08, c * 0.84, c * 0.84, rr * 0.6);
+      ctx.lineWidth = Math.max(0.6, c * 0.012);
+      ctx.strokeStyle = 'rgba(246, 219, 126, 0.35)';
       ctx.stroke();
+      ctx.fillStyle = 'rgba(246, 219, 126, 0.16)';
+      for (let i = 0; i < 4; i++) {
+        const a = (i / 4) * Math.PI * 2 + Math.PI / 4;
+        ctx.beginPath();
+        ctx.arc(
+          o.x + c / 2 + Math.cos(a) * c * 0.07,
+          o.y + c / 2 + Math.sin(a) * c * 0.07,
+          c * 0.065,
+          0,
+          Math.PI * 2,
+        );
+        ctx.fill();
+      }
     }
   }
 
-  paintSceneryFront(ctx, f, layout, scenery);
+  paintScenery(ctx, f, scenery);
+
+  // Corner pieces last, over the border.
+  const cr = Math.max(b * 1.6, layout.cell * 0.13);
+  for (const [x, y] of [
+    [cr * 0.9, cr * 0.9],
+    [W - cr * 0.9, cr * 0.9],
+    [cr * 0.9, H - cr * 0.9],
+    [W - cr * 0.9, H - cr * 0.9],
+  ] as const) {
+    cornerPiece(ctx, x, y, cr);
+  }
   ctx.restore();
 }
 
@@ -251,9 +314,9 @@ function marksBelow(ctx: CanvasRenderingContext2D, layout: BoardLayout, marks: B
   ctx.beginPath();
   ctx.rect(r.x, r.y, r.w, r.h);
   ctx.clip();
-  ctx.fillStyle = 'rgba(155, 42, 34, 0.3)';
+  ctx.fillStyle = 'rgba(196, 56, 28, 0.32)';
   ctx.fillRect(r.x, r.y, r.w, r.h);
-  ctx.strokeStyle = 'rgba(200, 71, 58, 0.55)';
+  ctx.strokeStyle = 'rgba(246, 219, 126, 0.45)';
   ctx.lineWidth = Math.max(1, layout.gap * 0.22);
   hatch(ctx, r.x, r.y, r.w, r.h, layout.cell * 0.16, -Math.PI / 4);
   ctx.restore();
@@ -276,7 +339,7 @@ function chain(
   const step = len / n;
   for (const [color, width] of [
     [INK, link * 0.36],
-    [IRON, link * 0.2],
+    [GOLD, link * 0.2],
   ] as const) {
     ctx.strokeStyle = color;
     ctx.lineWidth = width;
@@ -365,7 +428,7 @@ function marksAbove(
         c.y - half + br * 0.85,
         br,
         theme.bossTarget,
-        '#f3b08a',
+        GOLD_LIGHT,
         String(marks.bossTarget.turnsUntil),
         PARCHMENT_LIGHT,
         theme.fontFamily,

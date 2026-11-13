@@ -12,6 +12,7 @@
  * can be imported from anywhere without import cycles).
  */
 import type { TileId, TileKind } from '../core';
+import type { Effect } from './effects';
 import type { BoardLayout } from './layout';
 import type { BoardMarks } from './marks';
 import type { Scenery } from './scenery';
@@ -78,6 +79,16 @@ export interface LayoutStyle {
   /** Room between the board edge and the first cell: the frame. */
   readonly padding: number;
   readonly boardRadius: number;
+  /**
+   * Scenery bands above and below the grid (in cells): the board may then be
+   * taller than wide. The page CSS sizes the board box from the same numbers.
+   */
+  readonly bands?: {
+    readonly min: number;
+    readonly max: number;
+    /** Share of the spare height that goes to the top band. */
+    readonly topShare: number;
+  };
 }
 
 type AnyContext2D = CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
@@ -132,6 +143,11 @@ export interface Theme extends Palette {
   readonly boardArt: BoardArt;
   readonly particles: ParticleStyle;
   readonly layout: LayoutStyle;
+  /**
+   * The ring for a big merge or a relic pulse (neon: a thin light ring).
+   * A theme may draw something else, e.g. an ink ring with splashes.
+   */
+  readonly ring?: (row: number, col: number, color: string, start: number, reach: number) => Effect;
 }
 
 export const NEON_PALETTE: Palette = {

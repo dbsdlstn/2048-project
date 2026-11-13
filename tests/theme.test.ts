@@ -1,12 +1,17 @@
 import { describe, expect, it } from 'vitest';
 import type { TileKind } from '../src/core';
 import { readLaunchParams } from '../src/game/debug';
+import { readFileSync } from 'node:fs';
 import {
   NEON_THEME,
   STORYBOOK_THEME,
   THEMES,
   TileSpriteCache,
+  cellAtPoint,
+  cellCenter,
   computeLayout,
+  gridExtent,
+  lineRect,
   parseThemeId,
   type CanvasFactory,
   type Theme,
@@ -74,15 +79,77 @@ describe('themes provide painters, not only colours', () => {
     expect(STORYBOOK_THEME.particles.blend).toBe('source-over');
   });
 
-  it('the storybook frame is wider, so its cells are smaller but still fill the board exactly', () => {
-    const neon = computeLayout(400, 4, NEON_THEME.layout);
-    const book = computeLayout(400, 4, STORYBOOK_THEME.layout);
-    expect(book.padding).toBeGreaterThan(neon.padding * 3);
-    expect(book.cell).toBeLessThan(neon.cell);
-    expect(book.cell).toBeGreaterThan(neon.cell * 0.8);
-    for (const l of [neon, book]) {
-      expect(l.padding * 2 + l.cell * 4 + l.gap * 3).toBeCloseTo(400, 6);
+  it('the storybook board grows scenery bands from spare height; cells come from the width', () => {
+    const style = STORYBOOK_THEME.layout;
+    const tall = computeLayout(400, 4, style, 560);
+    expect(tall.height).toBe(560);
+    expect(tall.cell).toBeCloseTo(400 / (4 + 3 * style.gap + 2 * style.padding), 10);
+    const grid = gridExtent(tall);
+    expect(tall.padding * 2 + grid).toBeCloseTo(400, 6);
+    // The spare height is split into a top and a bottom band.
+    const top = tall.originY;
+    const bottom = tall.height - tall.originY - grid;
+    expect(top).toBeGreaterThan(tall.cell * (style.bands?.min ?? 0));
+    expect(top).toBeCloseTo(bottom, 6);
+  });
+
+  it('when the height cannot give the minimum bands, cells shrink and the grid is centred', () => {
+    const style = STORYBOOK_THEME.layout;
+    const min = style.bands?.min ?? 0;
+    const l = computeLayout(400, 4, style, 380);
+    const grid = gridExtent(l);
+    expect(l.originY).toBeCloseTo(l.cell * min, 6);
+    expect(l.height - l.originY - grid).toBeCloseTo(l.cell * min, 6);
+    expect(l.padding).toBeCloseTo((400 - grid) / 2, 6);
+    expect(l.padding).toBeGreaterThan(l.cell * style.padding);
+  });
+
+  it('tiles are never smaller than on the old square framed board, and larger with room', () => {
+    const style = STORYBOOK_THEME.layout;
+    const oldSquare = (side: number) => side / (4 + 3 * 0.09 + 2 * 0.56);
+    for (const [w, h] of [
+      [358, 520],
+      [288, 378],
+      [204, 300],
+      [520, 707],
+    ] as const) {
+      // The page CSS gives the board this box (see `--board-*` in style.css).
+      const units = 4 + 3 * style.gap + 2 * style.padding;
+      const unitsMin = 4 + 3 * style.gap + 2 * (style.bands?.min ?? 0);
+      const unitsMax = 4 + 3 * style.gap + 2 * (style.bands?.max ?? 0);
+      const c = Math.min(w / units, h / unitsMin);
+      const box = { w: c * units, h: Math.min(h, c * unitsMax) };
+      const l = computeLayout(box.w, 4, style, box.h);
+      expect(l.cell).toBeGreaterThanOrEqual(oldSquare(Math.min(w, h)) - 1e-9);
     }
+  });
+
+  it('hit-testing and line marks follow the shifted grid on a tall board', () => {
+    const l = computeLayout(400, 4, STORYBOOK_THEME.layout, 560);
+    for (let row = 0; row < 4; row++) {
+      for (let col = 0; col < 4; col++) {
+        const c = cellCenter(l, row, col);
+        expect(cellAtPoint(l, c.x, c.y)).toEqual({ row, col });
+      }
+    }
+    expect(cellAtPoint(l, 200, l.originY - l.gap * 2)).toBeNull(); // in the top band
+    const col = lineRect(l, 'col', 1);
+    expect(col.y).toBeCloseTo(l.originY - l.gap / 2, 6);
+    expect(col.h).toBeCloseTo(gridExtent(l) + l.gap, 6);
+  });
+
+  it('the page CSS sizes the board box from the same numbers as the layout', () => {
+    const css = readFileSync(new URL('../src/ui/style.css', import.meta.url), 'utf8');
+    const num = (name: string): number => {
+      const m = new RegExp(`--${name}:\\s*([0-9.]+);`).exec(css);
+      if (!m) throw new Error(`--${name} missing in style.css`);
+      return Number(m[1]);
+    };
+    const style = STORYBOOK_THEME.layout;
+    const span = 4 + 3 * style.gap;
+    expect(num('board-w')).toBeCloseTo(span + 2 * style.padding, 2);
+    expect(num('board-h-min')).toBeCloseTo(span + 2 * (style.bands?.min ?? 0), 2);
+    expect(num('board-h-max')).toBeCloseTo(span + 2 * (style.bands?.max ?? 0), 2);
   });
 
   it('neon layout is unchanged by the theme plumbing (default style)', () => {
@@ -90,6 +157,8 @@ describe('themes provide painters, not only colours', () => {
     expect(l.gap).toBeCloseTo(l.padding, 10);
     expect(l.cell).toBeCloseTo(400 / (4 + 5 * 0.12), 10);
     expect(l.boardRadius).toBeCloseTo(20, 10);
+    expect(l.height).toBe(400);
+    expect(l.originY).toBe(l.padding);
   });
 });
 
@@ -145,19 +214,28 @@ function contrast(a: string, b: string): number {
   return ((hi ?? 0) + 0.05) / ((lo ?? 0) + 0.05);
 }
 
-describe('storybook rune stones', () => {
-  it('climb a material ladder: one material per value up to 2048, then gems cycle', () => {
-    expect(materialFor(2).name).toBe('pebble');
-    expect(materialFor(2048).ornament).toBe('gem');
+describe('storybook illuminated tiles', () => {
+  it('climb a ladder: one look per value up to 2048, then jewelled tiers cycle', () => {
+    expect(materialFor(2).frame).toBe('rule');
+    expect(materialFor(128).gilded).toBe(true);
+    expect(materialFor(2048).frame).toBe('jewel');
     expect(new Set(MATERIALS.map((m) => m.name)).size).toBe(MATERIALS.length);
-    expect(materialFor(4096).ornament).toBe('gem');
+    expect(materialFor(4096).frame).toBe('jewel');
     expect(materialFor(4096).name).not.toBe(materialFor(8192).name);
   });
 
-  it('keep the numeral readable: at least 4.5:1 against both ends of every face gradient', () => {
-    for (const m of [...MATERIALS, materialFor(4096), materialFor(8192), materialFor(16384)]) {
-      expect(contrast(m.text, m.light), m.name).toBeGreaterThanOrEqual(4.5);
-      expect(contrast(m.text, m.shade), m.name).toBeGreaterThanOrEqual(4.5);
+  it('keep the numeral readable: at least 4.5:1 for both ends of the numeral against both ends of the ground', () => {
+    for (const m of [
+      ...MATERIALS,
+      materialFor(4096),
+      materialFor(8192),
+      materialFor(16384),
+      materialFor(32768),
+    ]) {
+      for (const text of [m.text, m.textDeep]) {
+        expect(contrast(text, m.light), m.name).toBeGreaterThanOrEqual(4.5);
+        expect(contrast(text, m.shade), m.name).toBeGreaterThanOrEqual(4.5);
+      }
     }
   });
 });

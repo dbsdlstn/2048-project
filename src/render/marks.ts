@@ -6,7 +6,7 @@
  * module only knows how to draw it.
  */
 import type { LineAxis, Position, TileId } from '../core';
-import { cellCenter, cellOrigin, type BoardLayout } from './layout';
+import { cellCenter, cellOrigin, gridExtent, type BoardLayout } from './layout';
 import type { BoardArt, Theme } from './theme';
 import { CHIP_CUT, chipPath, roundRectPath } from './tilePainter';
 
@@ -38,11 +38,11 @@ export function lineRect(
 ): { x: number; y: number; w: number; h: number } {
   const half = layout.gap / 2;
   const start = cellOrigin(layout, axis === 'row' ? index : 0, axis === 'col' ? index : 0);
-  const long = layout.size - layout.padding * 2 + layout.gap;
+  const long = gridExtent(layout) + layout.gap;
   const short = layout.cell + layout.gap;
   return axis === 'row'
     ? { x: layout.padding - half, y: start.y - half, w: long, h: short }
-    : { x: start.x - half, y: layout.padding - half, w: short, h: long };
+    : { x: start.x - half, y: layout.originY - half, w: short, h: long };
 }
 
 /** Neon static background: plate, circuit traces in the gaps, the rift, and chip-shaped slots. */

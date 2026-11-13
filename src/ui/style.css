@@ -1462,59 +1462,82 @@ button:focus-visible {
 }
 
 /* ================================================================ storybook theme
-   The art-proof look (?theme=storybook): warm parchment, ink and gold leaf.
-   The palette swap above covers colours; below are the shapes and effects
-   that differ: no neon glows (light does not glow on paper), plain rounded
-   cards with a gold inner rule instead of cut chips, serif display type,
-   and sheets set on parchment cards so text never floats over the game. */
+   The art-proof look (?theme=storybook), painted as an illuminated manuscript:
+   a vellum page, iron-gall ink, burnished gold leaf, lapis, vermilion and
+   verdigris. The palette swap above covers colours; below are the shapes and
+   effects that differ: no neon glows (light does not glow on vellum),
+   cartouches with a gold inner frame and red ruling instead of cut chips,
+   rubricated (red) labels, illuminated initials on titles, serif display
+   type, and sheets set on a framed page so text never floats over the game. */
 
 html[data-theme='storybook'] {
-  --bg: #ead9b4;
-  --panel: #f8efd9;
-  --panel-2: #efe1bf;
-  --text: #2b1d10;
-  --muted: #6b5236;
-  --teal: #2e6a5e;
-  --pink: #9b2a5a;
-  --violet: #6a3f8a;
+  --bg: #e8d3a6;
+  --panel: #f8ecd0;
+  --panel-2: #efdcb4;
+  --text: #2a1a10;
+  --muted: #6a4f34;
+  /* Rarity: verdigris (common), lapis (uncommon), dark gold (rare). */
+  --teal: #2f7a5e;
+  --pink: #a52a14;
+  --violet: #26479c;
   --amber: #8a5a10;
-  --rust: #9a3d16;
-  --danger: #a32a22;
-  --ice: #2f7fb2;
-  --curse: #3a2a2a;
+  --rust: #8c2412;
+  --danger: #a52a14;
+  --ice: #2f6fb2;
+  --curse: #1f1418;
   --record: #8a5a10;
-  --teal-rgb: 46, 106, 94;
+  --teal-rgb: 47, 122, 94;
   /* Gold leaf for borders and tints; --amber (text) is the darker, readable ink of it. */
-  --amber-rgb: 200, 149, 44;
-  --rust-rgb: 154, 61, 22;
-  --danger-rgb: 163, 42, 34;
-  --edge-rgb: 90, 68, 48;
-  --record-rgb: 200, 149, 44;
-  --panel-edge: rgba(var(--edge-rgb), 0.5);
-  --overlay: rgba(58, 38, 18, 0.5);
-  --banner-bg: rgba(249, 240, 218, 0.97);
-  --hint-bg: #f8efd9;
-  --bar-bg: #f8efd9;
-  --tooltip-bg: rgba(249, 240, 218, 0.98);
-  --toast-bg: rgba(249, 240, 218, 0.98);
-  --drop-shadow: rgba(60, 40, 20, 0.3);
-  --board-glow: rgba(60, 40, 20, 0.3);
-  --app-glow-1: rgba(255, 250, 235, 0.7);
-  --tag-active-text: #7a1d16;
-  --btn-text: #2b1d10;
-  --gold: #c8952c;
-  --gold-light: #f1d27a;
-  --gold-dark: #87590f;
-  --ink: #2b1d10;
-  --crimson: #8e2b1f;
-  --parchment-light: #fbf4e2;
+  --amber-rgb: 212, 165, 55;
+  --rust-rgb: 140, 36, 18;
+  --danger-rgb: 165, 42, 20;
+  --edge-rgb: 42, 26, 16;
+  --record-rgb: 212, 165, 55;
+  --panel-edge: rgba(var(--edge-rgb), 0.75);
+  --overlay: rgba(40, 24, 10, 0.55);
+  --banner-bg: #f8ecd0;
+  --hint-bg: #f8ecd0;
+  --bar-bg: #f8ecd0;
+  --tooltip-bg: #f8ecd0;
+  --toast-bg: #f8ecd0;
+  --drop-shadow: rgba(50, 30, 10, 0.35);
+  --board-glow: rgba(50, 30, 10, 0.35);
+  --app-glow-1: rgba(255, 248, 225, 0.7);
+  --tag-active-text: #fbefd5;
+  --btn-text: #2a1a10;
+  --gold: #d4a537;
+  --gold-light: #f6db7e;
+  --gold-dark: #8a6114;
+  --ink: #2a1a10;
+  --rubric: #a52a14;
+  --lapis: #26479c;
+  --lapis-deep: #172d6b;
+  --vermilion: #c4381c;
+  --verdigris: #2f7a5e;
+  --parchment-light: #fbf2dc;
+  --leaf: linear-gradient(135deg, #f6db7e, #d4a537 35%, #fff0b8 50%, #d4a537 65%, #8a6114);
   --font-display:
     Charter, 'Bitstream Charter', 'Palatino Linotype', Palatino, 'Book Antiqua', 'AppleMyungjo',
     'Nanum Myeongjo', 'Noto Serif KR', 'Noto Serif CJK KR', 'Noto Serif', 'DejaVu Serif', serif;
-  /* A gold rule just inside a card's ink border: the book-plate look. */
+  /* A cartouche: ink edge, a vellum gap, a gold frame, a fine ink line inside. */
   --plate:
-    inset 0 0 0 1.5px var(--parchment-light), inset 0 0 0 3px rgba(var(--amber-rgb), 0.45),
-    0 1px 2px rgba(60, 40, 20, 0.18);
+    inset 0 0 0 1.5px var(--parchment-light), inset 0 0 0 3.5px var(--gold),
+    inset 0 0 0 4.5px rgba(42, 26, 16, 0.55), 0 1px 2px rgba(50, 30, 10, 0.25);
+  /* Red dots in a cartouche's four corners, plus faint red ruling (the scribe's guide lines). */
+  --corners:
+    radial-gradient(circle at 8px 8px, var(--vermilion) 1.6px, transparent 2.2px),
+    radial-gradient(circle at calc(100% - 8px) 8px, var(--vermilion) 1.6px, transparent 2.2px),
+    radial-gradient(circle at 8px calc(100% - 8px), var(--vermilion) 1.6px, transparent 2.2px),
+    radial-gradient(
+      circle at calc(100% - 8px) calc(100% - 8px),
+      var(--vermilion) 1.6px,
+      transparent 2.2px
+    );
+  --ruling: repeating-linear-gradient(
+    180deg,
+    transparent 0 11px,
+    rgba(196, 56, 28, 0.07) 11px 12px
+  );
   --clip-chip-sm: none;
   --clip-chip-lg: none;
   color-scheme: light;
@@ -1525,11 +1548,11 @@ html[data-theme='storybook'] body {
   background: var(--bg);
 }
 
-/* Paper: a code-drawn grain texture (main.ts sets --paper) over warm washes. */
+/* Vellum: a code-drawn grain texture (main.ts sets --paper) over warm washes and an aged edge. */
 [data-theme='storybook'] .app {
   background:
     radial-gradient(ellipse at 50% 35%, var(--app-glow-1), transparent 60%),
-    radial-gradient(ellipse at 50% 50%, transparent 55%, rgba(140, 92, 40, 0.28) 100%),
+    radial-gradient(ellipse at 50% 50%, transparent 55%, rgba(130, 80, 30, 0.3) 100%),
     var(--paper, none), var(--bg);
 }
 
@@ -1542,22 +1565,45 @@ html[data-theme='storybook'] body {
 [data-theme='storybook'] .help-list,
 [data-theme='storybook'] .toggle,
 [data-theme='storybook'] .segment-row {
-  border: 1.5px solid var(--panel-edge);
-  border-radius: 8px;
-  background: linear-gradient(180deg, var(--panel), var(--panel-2));
+  border: 1.5px solid var(--ink);
+  border-radius: 4px;
+  background: var(--corners), linear-gradient(180deg, var(--panel), var(--panel-2));
   box-shadow: var(--plate);
 }
 
+/* Small boxes: no corner dots (they would touch the lettering). */
+[data-theme='storybook'] .moves,
+[data-theme='storybook'] .icon-btn,
+[data-theme='storybook'] .tray-all {
+  background: linear-gradient(180deg, var(--panel), var(--panel-2));
+}
+
+/* Rubrics: labels are written in red, as a scribe marked headings. */
+[data-theme='storybook'] .score-label,
+[data-theme='storybook'] .moves-label,
+[data-theme='storybook'] .boss-count,
+[data-theme='storybook'] .records dt,
+[data-theme='storybook'] .segment-label,
+[data-theme='storybook'] .help-section h3 {
+  color: var(--rubric);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+/* The stage label is an illuminated panel: gold lettering on lapis in a gold frame. */
 [data-theme='storybook'] .stage-pill {
   font-family: var(--font-display);
-  color: #fbefd5;
-  background: linear-gradient(180deg, #a3372a, var(--crimson));
+  color: var(--gold-light);
+  background:
+    radial-gradient(circle at 50% -20%, rgba(111, 143, 214, 0.55), transparent 70%),
+    linear-gradient(180deg, var(--lapis), var(--lapis-deep));
   border: 1.5px solid var(--ink);
-  border-radius: 8px;
+  border-radius: 4px;
   box-shadow:
-    inset 0 0 0 1.5px rgba(var(--amber-rgb), 0.8),
-    0 1px 2px rgba(60, 40, 20, 0.3);
-  text-shadow: none;
+    inset 0 0 0 2px var(--gold),
+    inset 0 0 0 3px var(--ink),
+    0 1px 2px rgba(50, 30, 10, 0.35);
+  text-shadow: 0 1px 0 var(--ink);
 }
 
 [data-theme='storybook'] .score-value,
@@ -1568,51 +1614,80 @@ html[data-theme='storybook'] body {
 [data-theme='storybook'] .banner strong,
 [data-theme='storybook'] .banner b,
 [data-theme='storybook'] .offer-name,
-[data-theme='storybook'] .mode-btn strong {
+[data-theme='storybook'] .mode-btn strong,
+[data-theme='storybook'] .goal-text {
   font-family: var(--font-display);
 }
 
 [data-theme='storybook'] .score-gain {
-  color: var(--teal);
+  color: var(--verdigris);
   text-shadow: 0 0 3px var(--parchment-light);
 }
 
 [data-theme='storybook'] .bar {
-  height: 7px;
-  background: rgba(var(--edge-rgb), 0.18);
-  box-shadow: inset 0 1px 1px rgba(60, 40, 20, 0.25);
+  height: 8px;
+  border: 1px solid var(--ink);
+  border-radius: 2px;
+  background: var(--parchment-light);
 }
 
 [data-theme='storybook'] .bar-fill {
-  background: linear-gradient(90deg, var(--gold-dark), var(--gold) 60%, #e2672a);
-  box-shadow: none;
+  background: var(--leaf);
+  box-shadow: inset -2px 0 0 var(--vermilion);
 }
 
-[data-theme='storybook'] .goal.done .bar-fill {
-  background: var(--gold);
+[data-theme='storybook'] .bar-pace {
+  background: repeating-linear-gradient(
+    90deg,
+    rgba(38, 71, 156, 0.4) 0 4px,
+    rgba(38, 71, 156, 0.12) 4px 7px
+  );
 }
 
 [data-theme='storybook'] .boss {
-  border-radius: 8px;
-  border: 1.5px solid rgba(var(--rust-rgb), 0.7);
-  background: linear-gradient(180deg, #f6e2c8, #efd3b0);
-  box-shadow: var(--plate);
+  border-radius: 4px;
+  border: 1.5px solid var(--ink);
+  background: var(--corners), var(--ruling), linear-gradient(180deg, #f8e2d2, #f0d0b8);
+  box-shadow:
+    inset 0 0 0 1.5px var(--parchment-light),
+    inset 0 0 0 3.5px var(--vermilion),
+    inset 0 0 0 4.5px rgba(42, 26, 16, 0.55);
 }
 
+/* The storybook board is taller than wide when there is room: scenery bands
+   above and below the grid. Sized in cells from the theme's layout numbers
+   (src/render/storybook/index.ts, STORYBOOK_LAYOUT; a test keeps them in step):
+   width = 4 cells + 3 gaps (0.09) + 2 side margins (0.3) = 4.87 cells;
+   height = 4.27 cells + two bands of 0.56 (minimum) to 1.35 (maximum) cells.
+   The cell is as large as the width allows unless even the minimum bands do
+   not fit, so tiles are never smaller than with a square framed board. */
 [data-theme='storybook'] .board {
-  border-radius: 2%;
+  --board-w: 4.87;
+  --board-h-min: 5.39;
+  --board-h-max: 6.97;
+  --board-cell: min(100cqw / var(--board-w), 100cqh / var(--board-h-min));
+  width: calc(var(--board-cell) * var(--board-w));
+  height: min(100cqh, calc(var(--board-cell) * var(--board-h-max)));
+  aspect-ratio: auto;
+  border-radius: 1.2%;
   box-shadow:
     0 8px 18px var(--board-glow),
-    0 1px 3px rgba(60, 40, 20, 0.4);
+    0 1px 3px rgba(50, 30, 10, 0.45);
 }
 
 [data-theme='storybook'] .banner {
   border: 2px solid var(--ink);
-  border-radius: 6px;
+  border-radius: 4px;
+  background: var(--corners), linear-gradient(180deg, var(--parchment-light), var(--panel));
   box-shadow:
     inset 0 0 0 2px var(--parchment-light),
-    inset 0 0 0 4px rgba(var(--amber-rgb), 0.6),
+    inset 0 0 0 4px var(--gold),
+    inset 0 0 0 5px var(--ink),
     0 6px 16px var(--drop-shadow);
+}
+
+[data-theme='storybook'] .banner strong {
+  color: var(--rubric);
 }
 
 [data-theme='storybook'] .banner b {
@@ -1622,43 +1697,69 @@ html[data-theme='storybook'] body {
 [data-theme='storybook'] .hint,
 [data-theme='storybook'] .target-bar,
 [data-theme='storybook'] .board-msg {
-  border-radius: 8px;
+  border: 1.5px solid var(--ink);
+  border-radius: 4px;
+  background: var(--corners), var(--hint-bg);
   box-shadow: var(--plate);
 }
 
+[data-theme='storybook'] .hint strong {
+  color: var(--rubric);
+}
+
+[data-theme='storybook'] .board-msg {
+  color: var(--rubric);
+}
+
 [data-theme='storybook'] .hint-close {
-  border-radius: 6px;
+  border-radius: 4px;
   border: 1.5px solid var(--ink);
-  background: linear-gradient(180deg, var(--gold-light), var(--gold));
+  background: var(--leaf);
   color: var(--ink);
 }
 
 [data-theme='storybook'] .active-btn {
-  border-radius: 8px;
-  box-shadow: var(--plate);
+  border-radius: 4px;
+  border: 1.5px solid var(--ink);
+  background: var(--corners), linear-gradient(180deg, var(--panel), var(--panel-2));
+  box-shadow:
+    inset 0 0 0 1.5px var(--parchment-light),
+    inset 0 0 0 3.5px var(--rarity, var(--teal)),
+    0 1px 2px rgba(50, 30, 10, 0.25);
 }
 
 [data-theme='storybook'] .active-btn.targeting {
-  box-shadow: 0 0 0 2px rgba(var(--danger-rgb), 0.4);
+  box-shadow:
+    inset 0 0 0 3.5px var(--danger),
+    0 0 0 2px rgba(var(--danger-rgb), 0.4);
 }
 
+/* Relic chips: small illuminated roundels. */
 [data-theme='storybook'] .relic-chip {
   border-radius: 50%;
-  border: 2px solid var(--rarity, var(--teal));
+  border: 1.5px solid var(--ink);
+  color: var(--gold-light);
+  background: radial-gradient(
+    circle at 35% 30%,
+    color-mix(in srgb, var(--rarity) 70%, white),
+    var(--rarity)
+  );
   box-shadow:
-    inset 0 0 0 2px var(--parchment-light),
-    0 1px 2px rgba(60, 40, 20, 0.3);
+    inset 0 0 0 2px var(--gold),
+    0 1px 2px rgba(50, 30, 10, 0.35);
   font-family: var(--font-display);
+  text-shadow: 0 1px 0 var(--ink);
 }
 
 [data-theme='storybook'] .tooltip {
   border: 1.5px solid var(--ink);
-  border-radius: 8px;
+  border-radius: 4px;
+  box-shadow: var(--plate);
 }
 
-/* Buttons: small book plates; the primary one is gold leaf with ink lettering. */
+/* Buttons: cartouches; the primary one is burnished gold leaf with ink lettering. */
 [data-theme='storybook'] .btn {
-  border-radius: 8px;
+  border-radius: 4px;
   border: 1.5px solid var(--ink);
   background: linear-gradient(180deg, var(--panel), var(--panel-2));
   box-shadow: var(--plate);
@@ -1666,10 +1767,11 @@ html[data-theme='storybook'] body {
 
 [data-theme='storybook'] .btn-primary {
   color: var(--btn-text);
-  background: linear-gradient(180deg, var(--gold-light), var(--gold));
+  background: var(--leaf);
   box-shadow:
     inset 0 0 0 1.5px rgba(255, 247, 220, 0.7),
-    0 2px 3px rgba(60, 40, 20, 0.3);
+    inset 0 0 0 2.5px rgba(42, 26, 16, 0.35),
+    0 2px 3px rgba(50, 30, 10, 0.35);
 }
 
 [data-theme='storybook'] .btn-quiet {
@@ -1681,24 +1783,55 @@ html[data-theme='storybook'] body {
 [data-theme='storybook'] .btn-danger,
 [data-theme='storybook'] .btn-small {
   color: #fbefd5;
-  background: linear-gradient(180deg, #a3372a, var(--crimson));
+  background: linear-gradient(180deg, var(--vermilion), #8c2412);
+  box-shadow:
+    inset 0 0 0 2px var(--gold),
+    0 1px 2px rgba(50, 30, 10, 0.3);
 }
 
-/* Sheets sit on a parchment card with a gold rule (text never floats over the board). */
+/* Sheets are pages: vellum, ruled, a gilded double frame with vermilion corner dots. */
 [data-theme='storybook'] .screen {
   backdrop-filter: blur(1.5px);
   -webkit-backdrop-filter: blur(1.5px);
 }
 
 [data-theme='storybook'] .screen:not(.screen-menu) .sheet {
-  padding: 18px 16px;
+  padding: 22px 18px 18px;
   border: 2px solid var(--ink);
-  border-radius: 10px;
-  background: linear-gradient(180deg, var(--parchment-light), var(--panel) 40%, var(--panel-2));
+  border-radius: 4px;
+  background:
+    radial-gradient(
+      circle at 12px 12px,
+      var(--lapis) 4px,
+      var(--gold) 4.5px 6px,
+      transparent 6.5px
+    ),
+    radial-gradient(
+      circle at calc(100% - 12px) 12px,
+      var(--lapis) 4px,
+      var(--gold) 4.5px 6px,
+      transparent 6.5px
+    ),
+    radial-gradient(
+      circle at 12px calc(100% - 12px),
+      var(--lapis) 4px,
+      var(--gold) 4.5px 6px,
+      transparent 6.5px
+    ),
+    radial-gradient(
+      circle at calc(100% - 12px) calc(100% - 12px),
+      var(--lapis) 4px,
+      var(--gold) 4.5px 6px,
+      transparent 6.5px
+    ),
+    var(--ruling), linear-gradient(180deg, var(--parchment-light), var(--panel) 40%, var(--panel-2));
   box-shadow:
     inset 0 0 0 3px var(--parchment-light),
-    inset 0 0 0 5px rgba(var(--amber-rgb), 0.55),
-    0 12px 30px rgba(40, 24, 8, 0.45);
+    inset 0 0 0 6px var(--gold),
+    inset 0 0 0 7px var(--ink),
+    inset 0 0 0 9px var(--parchment-light),
+    inset 0 0 0 10px var(--vermilion),
+    0 12px 30px rgba(30, 18, 6, 0.5);
 }
 
 [data-theme='storybook'] .sheet-title {
@@ -1707,17 +1840,49 @@ html[data-theme='storybook'] body {
   letter-spacing: 0.02em;
 }
 
-/* A gold flourish under sheet titles. */
+/* Illuminated initial: the first character of a title in gold on a lapis square. */
+[data-theme='storybook'] .sheet-title::first-letter,
+[data-theme='storybook'] .brand-title::first-letter,
+[data-theme='storybook'] .offer-name::first-letter {
+  color: var(--gold-light);
+  background:
+    radial-gradient(circle at 70% 25%, rgba(111, 143, 214, 0.6), transparent 60%),
+    linear-gradient(135deg, var(--lapis), var(--lapis-deep));
+  border: 2px solid var(--gold);
+  border-radius: 3px;
+  box-shadow: 0 0 0 1.5px var(--ink);
+  padding: 0 0.16em;
+  margin-right: 0.1em;
+  text-shadow: 0 1px 0 var(--ink);
+}
+
+[data-theme='storybook'] .offer-name::first-letter {
+  font-size: 1.1em;
+  border-width: 1.5px;
+  padding: 0 0.12em;
+}
+
+/* A gold flourish under sheet titles: a rule with a lozenge and two red dots. */
 [data-theme='storybook'] .sheet-title::after {
   content: '';
   display: block;
-  width: 120px;
-  height: 8px;
-  margin: 6px auto 0;
+  width: 150px;
+  height: 10px;
+  margin: 8px auto 0;
   background:
-    radial-gradient(circle, var(--gold) 2.5px, transparent 3px) center / 8px 8px no-repeat,
-    linear-gradient(90deg, transparent, var(--gold) 30%, var(--gold) 70%, transparent) center / 100%
+    linear-gradient(45deg, transparent 35%, var(--gold) 36% 64%, transparent 65%) center / 10px 10px
+      no-repeat,
+    radial-gradient(circle, var(--vermilion) 2px, transparent 2.5px) calc(50% - 22px) 50% / 6px 6px
+      no-repeat,
+    radial-gradient(circle, var(--vermilion) 2px, transparent 2.5px) calc(50% + 22px) 50% / 6px 6px
+      no-repeat,
+    linear-gradient(90deg, transparent, var(--gold) 25%, var(--gold) 75%, transparent) center / 100%
       1.5px no-repeat;
+}
+
+[data-theme='storybook'] .sheet-sub {
+  color: var(--rubric);
+  font-weight: 700;
 }
 
 [data-theme='storybook'] .result-failed .sheet-title,
@@ -1733,43 +1898,53 @@ html[data-theme='storybook'] body {
 }
 
 [data-theme='storybook'] .sheet-tip {
-  border-radius: 8px;
-  background: rgba(var(--amber-rgb), 0.14);
+  border: 1px solid var(--gold);
+  border-left: 4px solid var(--vermilion);
+  border-radius: 2px;
+  background: rgba(var(--amber-rgb), 0.12);
+  font-style: italic;
 }
 
 [data-theme='storybook'] .mode-btn {
-  border-radius: 10px;
+  border-radius: 4px;
   border: 1.5px solid var(--ink);
-  background: linear-gradient(180deg, var(--panel), var(--panel-2));
+  background: var(--corners), linear-gradient(180deg, var(--panel), var(--panel-2));
   box-shadow: var(--plate);
 }
 
 [data-theme='storybook'] .mode-btn.btn-primary {
   border-color: var(--ink);
-  background: linear-gradient(180deg, #f8e3a6, #e8c46a);
+  background: var(--corners), linear-gradient(180deg, #fbe9b0, #edc865);
   box-shadow:
     inset 0 0 0 1.5px rgba(255, 247, 220, 0.8),
-    inset 0 0 0 3.5px rgba(var(--amber-rgb), 0.8),
-    0 2px 4px rgba(60, 40, 20, 0.3);
+    inset 0 0 0 3.5px var(--gold-dark),
+    inset 0 0 0 4.5px var(--ink),
+    0 2px 4px rgba(50, 30, 10, 0.35);
 }
 
 [data-theme='storybook'] .mode-btn.btn-primary span {
   color: #4f3a1f;
 }
 
+[data-theme='storybook'] .mode-btn strong::first-letter {
+  color: var(--rubric);
+}
+
 [data-theme='storybook'] .toggle[aria-checked='true'] .toggle-state,
 [data-theme='storybook'] .segment-btn[aria-checked='true'] {
-  color: #fbefd5;
-  background: var(--teal);
+  color: var(--gold-light);
+  background: var(--lapis);
   border-color: var(--ink);
 }
 
 [data-theme='storybook'] .offer-card {
-  border-radius: 10px;
+  border-radius: 4px;
   border: 1.5px solid var(--ink);
-  background: linear-gradient(180deg, var(--parchment-light), var(--panel));
+  background:
+    var(--corners), var(--ruling), linear-gradient(180deg, var(--parchment-light), var(--panel));
   box-shadow:
-    inset 4px 0 0 var(--rarity),
+    inset 5px 0 0 var(--rarity),
+    inset 6px 0 0 var(--ink),
     var(--plate);
 }
 
@@ -1795,7 +1970,7 @@ html[data-theme='storybook'] body {
   font-family: var(--font-display);
   font-size: 40px;
   font-weight: 900;
-  line-height: 1.1;
+  line-height: 1.15;
   color: var(--ink);
   letter-spacing: 0.04em;
 }
@@ -1804,7 +1979,7 @@ html[data-theme='storybook'] body {
   font-family: var(--font-display);
   font-size: 13px;
   letter-spacing: 0.3em;
-  color: var(--amber);
+  color: var(--rubric);
 }
 
 /* ---------------------------------------------------------------- journey map (stage A slice) */
@@ -1854,6 +2029,10 @@ html[data-theme='storybook'] body {
   font-size: 9px;
   font-weight: 800;
   fill: var(--ink, #2b1d10);
+}
+
+.journey-map .jm-num.is-done {
+  fill: #fbf2dc;
 }
 
 .journey-map .jm-n {

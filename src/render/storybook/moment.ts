@@ -6,7 +6,7 @@
  * dust comes from the particle layer, so this effect only draws the ribbon.
  */
 import type { Effect } from '../effects';
-import type { BoardLayout } from '../layout';
+import { gridExtent, type BoardLayout } from '../layout';
 import type { RaceId } from '../scenery';
 import { clamp, easeOutBack, easeOutCubic } from '../tween';
 import { crest, paintEmblem } from './emblems';
@@ -49,7 +49,8 @@ export class FrameMoment implements Effect {
     const fade = clamp((MOMENT_MS - t) / FADE, 0, 1);
     const unroll = this.reduced ? 1 : easeOutCubic(clamp(t / UNROLL, 0, 1));
     const cx = S / 2;
-    const cy = S * 0.56;
+    // Centred on the grid (the board may be taller than wide, with scenery bands).
+    const cy = layout.originY + gridExtent(layout) * 0.58;
     const h = layout.cell * 0.78;
     const fullW = S * 0.84;
     const w = Math.max(h, fullW * unroll);
@@ -58,7 +59,7 @@ export class FrameMoment implements Effect {
 
     // A soft veil so the ribbon reads over busy tiles.
     ctx.fillStyle = `rgba(43, 26, 12, ${0.28 * Math.min(1, t / 200)})`;
-    ctx.fillRect(0, 0, S, S);
+    ctx.fillRect(0, 0, S, layout.height);
 
     // Gold rays behind the crest for a rally.
     const crestY = cy - h * 1.15;

@@ -734,7 +734,13 @@ export function rendererBoard(renderer: BoardRenderer): FeedbackBoard {
       }
     },
     ring: (row, col, color, reach) => {
-      renderer.addEffect(new RingPulse(row, col, color, renderer.viewTimeNow(), 420, reach));
+      const now = renderer.viewTimeNow();
+      const custom = renderer.currentTheme.ring;
+      renderer.addEffect(
+        custom
+          ? custom(row, col, color, now, reach)
+          : new RingPulse(row, col, color, now, 420, reach),
+      );
     },
     hitStop: (ms) => {
       renderer.hitStop(ms);
