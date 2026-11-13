@@ -26,6 +26,11 @@ export default tseslint.config(
     },
   },
   {
+    // Command-line tools run in Node.
+    files: ['tools/**/*.ts'],
+    languageOptions: { globals: { ...globals.node } },
+  },
+  {
     // Plain JS config files are not part of the type-aware project.
     files: ['**/*.js'],
     ...tseslint.configs.disableTypeChecked,

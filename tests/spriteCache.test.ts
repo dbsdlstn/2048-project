@@ -15,17 +15,13 @@ function fakeFactory(): { factory: CanvasFactory; created: { width: number; heig
 
 function countingArt(): { art: Record<TileKind, TileArt>; paints: () => number } {
   let paints = 0;
-  return {
-    art: {
-      number: {
-        margin: (look) => (look.emphasized ? 10 : 5),
-        paint: () => {
-          paints++;
-        },
-      },
+  const art: TileArt = {
+    margin: (look) => (look.emphasized ? 10 : 5),
+    paint: () => {
+      paints++;
     },
-    paints: () => paints,
   };
+  return { art: { number: art, stone: art, prism: art }, paints: () => paints };
 }
 
 describe('TileSpriteCache', () => {

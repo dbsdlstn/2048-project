@@ -7,7 +7,7 @@
  * milliseconds. It is pure (time is passed in) so it can be tested in Node.
  */
 import { NO_STATUS, listTiles } from '../core';
-import type { GameState, TileId, TileKind, TileStatus, TurnEvent } from '../core';
+import type { GameState, TileId, TileKind, TileStatus, TurnEvent, TurnPhase } from '../core';
 import { easeOutBack, easeOutCubic, endTime, sample, still, tween } from './tween';
 import type { Tween } from './tween';
 
@@ -16,8 +16,14 @@ export interface AnimationTimings {
   readonly slide: number;
   readonly pop: number;
   readonly spawn: number;
-  /** Delay after the slide ends before spawned tiles start growing. */
+  /** Pause between two consecutive phases (e.g. after the slide, before spawned tiles grow). */
   readonly spawnDelay: number;
+  /** Shrink-out of a destroyed tile. */
+  readonly destroy: number;
+  /** Highlight pulse when a tile's status changes. */
+  readonly status: number;
+  /** Tiles flying to their new cells on a shuffle. */
+  readonly shuffle: number;
 }
 
 export const DEFAULT_TIMINGS: AnimationTimings = {
@@ -25,6 +31,9 @@ export const DEFAULT_TIMINGS: AnimationTimings = {
   pop: 170,
   spawn: 150,
   spawnDelay: 20,
+  destroy: 140,
+  status: 120,
+  shuffle: 220,
 };
 
 /** Draw order: merged-away tiles under normal tiles, fresh merge results on top. */
@@ -34,20 +43,56 @@ const Z_MERGED = 2;
 
 const popEase = easeOutBack(2.4);
 const POP_FROM = 0.75;
+const STATUS_PULSE = 1.12;
+
+/**
+ * Sequential tweens of one property. A tile can slide in the slide phase,
+ * again in a chain phase, then fly in a shuffle: each phase appends a tween
+ * that starts where the previous one ended.
+ */
+type Track = Tween[];
+
+function sampleTrack(track: Track, now: number): number {
+  let value = track[0]?.from ?? 0;
+  for (const tw of track) {
+    if (now < tw.start) break;
+    value = sample(tw, now);
+  }
+  return value;
+}
+
+function trackEnd(track: Track): number {
+  return track.reduce((t, tw) => Math.max(t, endTime(tw)), Number.NEGATIVE_INFINITY);
+}
+
+function finalValue(track: Track): number {
+  return sampleTrack(track, Number.POSITIVE_INFINITY);
+}
+
+/** A value or status change scheduled at a point in time (no tween). */
+interface Change {
+  readonly at: number;
+  readonly value?: number;
+  readonly status?: TileStatus;
+}
 
 export interface TileSprite {
   readonly id: TileId;
   kind: TileKind;
+  /** Value and status before any scheduled `changes`. */
   value: number;
   status: TileStatus;
+  changes: Change[];
   // Animation tracks (absolute time).
-  row: Tween;
-  col: Tween;
-  scale: Tween;
+  row: Track;
+  col: Track;
+  scale: Track;
   /** Hidden until this time (merge results wait for the slide to finish). */
   appearAt: number;
-  /** Removed from the view at this time (merge sources); `Infinity` = stays. */
+  /** Removed from the view at this time (merge sources, destroyed tiles); `Infinity` = stays. */
   removeAt: number;
+  /** The merge pop plays until this time. */
+  popUntil: number;
   z: number;
 }
 
@@ -62,6 +107,30 @@ export interface SpriteFrame {
   readonly scale: number;
   /** True while this tile's merge pop is playing (painters / effects may emphasise it). */
   readonly popping: boolean;
+}
+
+function newSprite(
+  id: TileId,
+  kind: TileKind,
+  value: number,
+  status: TileStatus,
+  row: number,
+  col: number,
+): TileSprite {
+  return {
+    id,
+    kind,
+    value,
+    status,
+    changes: [],
+    row: [still(row)],
+    col: [still(col)],
+    scale: [still(1)],
+    appearAt: Number.NEGATIVE_INFINITY,
+    removeAt: Number.POSITIVE_INFINITY,
+    popUntil: Number.NEGATIVE_INFINITY,
+    z: Z_NORMAL,
+  };
 }
 
 export class BoardView {
@@ -92,88 +161,119 @@ export class BoardView {
   syncTo(state: GameState): void {
     this.clear(state.size);
     for (const { tile, pos } of listTiles(state)) {
-      this.sprites.set(tile.id, {
-        id: tile.id,
-        kind: tile.kind,
-        value: tile.value,
-        status: tile.status,
-        row: still(pos.row),
-        col: still(pos.col),
-        scale: still(1),
-        appearAt: Number.NEGATIVE_INFINITY,
-        removeAt: Number.POSITIVE_INFINITY,
-        z: Z_NORMAL,
-      });
+      this.sprites.set(
+        tile.id,
+        newSprite(tile.id, tile.kind, tile.value, tile.status, pos.row, pos.col),
+      );
     }
   }
 
   /**
-   * Schedules a turn's events as animation starting at `now`.
-   * Any animation still running is fast-forwarded first, so the view can never
-   * drift from the core state no matter how quickly turns arrive.
+   * Schedules a turn's phases as animation starting at `now`. Phases play one
+   * after another (each starts when the previous one's board motion ends);
+   * events inside a phase play together. Any animation still running is
+   * fast-forwarded first, so the view can never drift from the core state no
+   * matter how quickly turns arrive.
    */
-  apply(events: readonly TurnEvent[], now: number): void {
+  apply(phases: readonly TurnPhase[], now: number): void {
     this.finish();
-    const t = this.timings;
-    const slideEnd = now + t.slide;
-    let slid = false;
+    let cursor = now;
+    let first = true;
+    for (const phase of phases) {
+      const start = first ? cursor : cursor + this.timings.spawnDelay;
+      const duration = this.schedulePhase(phase.events, start);
+      // Phases with nothing to show (score, triggers…) take no time.
+      if (duration <= 0) continue;
+      cursor = start + duration;
+      first = false;
+    }
+    this.busyUntil = this.computeBusyUntil();
+  }
 
+  /** Schedules one phase's events from `start`; returns how long its board motion lasts. */
+  private schedulePhase(events: readonly TurnEvent[], start: number): number {
+    const t = this.timings;
+    let duration = 0;
     for (const e of events) {
       switch (e.type) {
         case 'move': {
           const s = this.require(e.tileId);
-          s.row = tween(e.from.row, e.to.row, now, t.slide, easeOutCubic);
-          s.col = tween(e.from.col, e.to.col, now, t.slide, easeOutCubic);
-          slid = true;
+          s.row.push(tween(e.from.row, e.to.row, start, t.slide, easeOutCubic));
+          s.col.push(tween(e.from.col, e.to.col, start, t.slide, easeOutCubic));
+          duration = Math.max(duration, t.slide);
           break;
         }
         case 'merge': {
+          const slideEnd = start + t.slide;
           for (const [i, id] of e.sourceIds.entries()) {
             const s = this.require(id);
             const from = e.from[i] ?? e.to;
-            s.row = tween(from.row, e.to.row, now, t.slide, easeOutCubic);
-            s.col = tween(from.col, e.to.col, now, t.slide, easeOutCubic);
+            s.row.push(tween(from.row, e.to.row, start, t.slide, easeOutCubic));
+            s.col.push(tween(from.col, e.to.col, start, t.slide, easeOutCubic));
             s.removeAt = slideEnd;
             s.z = Z_VANISHING;
           }
-          this.sprites.set(e.resultId, {
-            id: e.resultId,
-            kind: 'number',
-            value: e.value,
-            status: NO_STATUS,
-            row: still(e.to.row),
-            col: still(e.to.col),
-            scale: tween(POP_FROM, 1, slideEnd, t.pop, popEase),
-            appearAt: slideEnd,
-            removeAt: Number.POSITIVE_INFINITY,
-            z: Z_MERGED,
-          });
-          slid = true;
+          const result = newSprite(e.resultId, e.kind, e.value, NO_STATUS, e.to.row, e.to.col);
+          result.scale = [tween(POP_FROM, 1, slideEnd, t.pop, popEase)];
+          result.appearAt = slideEnd;
+          result.popUntil = slideEnd + t.pop;
+          result.z = Z_MERGED;
+          this.sprites.set(e.resultId, result);
+          duration = Math.max(duration, t.slide);
           break;
         }
         case 'spawn': {
-          const start = slid ? slideEnd + t.spawnDelay : now;
-          this.sprites.set(e.tileId, {
-            id: e.tileId,
-            kind: e.kind,
-            value: e.value,
-            status: NO_STATUS,
-            row: still(e.at.row),
-            col: still(e.at.col),
-            scale: tween(0, 1, start, t.spawn, easeOutCubic),
-            appearAt: start,
-            removeAt: Number.POSITIVE_INFINITY,
-            z: Z_NORMAL,
-          });
+          const s = newSprite(e.tileId, e.kind, e.value, NO_STATUS, e.at.row, e.at.col);
+          s.scale = [tween(0, 1, start, t.spawn, easeOutCubic)];
+          s.appearAt = start;
+          this.sprites.set(e.tileId, s);
+          duration = Math.max(duration, t.spawn);
+          break;
+        }
+        case 'destroy': {
+          const s = this.require(e.tileId);
+          s.scale.push(tween(1, 0, start, t.destroy, easeOutCubic));
+          s.removeAt = start + t.destroy;
+          s.z = Z_VANISHING;
+          duration = Math.max(duration, t.destroy);
+          break;
+        }
+        case 'statusChange': {
+          const s = this.require(e.tileId);
+          s.changes.push({ at: start, status: e.status });
+          s.scale.push(tween(STATUS_PULSE, 1, start, t.status, easeOutCubic));
+          duration = Math.max(duration, t.status);
+          break;
+        }
+        case 'valueChange': {
+          const s = this.require(e.tileId);
+          s.changes.push({ at: start, value: e.to });
+          s.scale.push(tween(POP_FROM, 1, start, t.pop, popEase));
+          duration = Math.max(duration, t.pop);
+          break;
+        }
+        case 'shuffle': {
+          for (const m of e.moves) {
+            const s = this.require(m.tileId);
+            s.row.push(tween(m.from.row, m.to.row, start, t.shuffle, easeOutCubic));
+            s.col.push(tween(m.from.col, m.to.col, start, t.shuffle, easeOutCubic));
+          }
+          if (e.moves.length > 0) duration = Math.max(duration, t.shuffle);
           break;
         }
         case 'score':
+        case 'trigger':
+        case 'lineLock':
+        case 'lineUnlock':
+        case 'bonusMoves':
+        case 'stageCleared':
+        case 'stageFailed':
         case 'gameOver':
-          // Not board animation; the HUD / effects react to these.
+          // Not tile animation; the HUD / effects react to these.
           break;
       }
     }
-    this.busyUntil = this.computeBusyUntil();
+    return duration;
   }
 
   /** True while any scheduled animation has not reached its end at `now`. */
@@ -194,17 +294,22 @@ export class BoardView {
 
   /** Jumps every animation to its end state. */
   finish(): void {
-    const end = Number.POSITIVE_INFINITY;
     for (const [id, s] of this.sprites) {
       // Only sprites scheduled for removal go; `removeAt === Infinity` means "stays".
       if (Number.isFinite(s.removeAt)) {
         this.sprites.delete(id);
         continue;
       }
-      s.row = still(sample(s.row, end));
-      s.col = still(sample(s.col, end));
-      s.scale = still(sample(s.scale, end));
+      s.row = [still(finalValue(s.row))];
+      s.col = [still(finalValue(s.col))];
+      s.scale = [still(finalValue(s.scale))];
+      for (const c of s.changes) {
+        if (c.value !== undefined) s.value = c.value;
+        if (c.status !== undefined) s.status = c.status;
+      }
+      s.changes = [];
       s.appearAt = Number.NEGATIVE_INFINITY;
+      s.popUntil = Number.NEGATIVE_INFINITY;
       s.z = Z_NORMAL;
     }
     this.busyUntil = Number.NEGATIVE_INFINITY;
@@ -215,17 +320,24 @@ export class BoardView {
     const out: { z: number; f: SpriteFrame }[] = [];
     for (const s of this.sprites.values()) {
       if (now < s.appearAt || now >= s.removeAt) continue;
+      let value = s.value;
+      let status = s.status;
+      for (const c of s.changes) {
+        if (c.at > now) continue;
+        if (c.value !== undefined) value = c.value;
+        if (c.status !== undefined) status = c.status;
+      }
       out.push({
         z: s.z,
         f: {
           id: s.id,
           kind: s.kind,
-          value: s.value,
-          status: s.status,
-          row: sample(s.row, now),
-          col: sample(s.col, now),
-          scale: sample(s.scale, now),
-          popping: s.z === Z_MERGED && now < endTime(s.scale),
+          value,
+          status,
+          row: sampleTrack(s.row, now),
+          col: sampleTrack(s.col, now),
+          scale: sampleTrack(s.scale, now),
+          popping: now < s.popUntil,
         },
       });
     }
@@ -247,8 +359,9 @@ export class BoardView {
   private computeBusyUntil(): number {
     let until = Number.NEGATIVE_INFINITY;
     for (const s of this.sprites.values()) {
-      until = Math.max(until, endTime(s.row), endTime(s.col), endTime(s.scale));
+      until = Math.max(until, trackEnd(s.row), trackEnd(s.col), trackEnd(s.scale));
       if (Number.isFinite(s.removeAt)) until = Math.max(until, s.removeAt);
+      for (const c of s.changes) until = Math.max(until, c.at);
     }
     return until;
   }

@@ -123,10 +123,123 @@ const numberTileArt: TileArt = {
   },
 };
 
+const STONE_FILL = '#2a2a38';
+const STONE_EDGE = '#8a8aa0';
+
+/** Stone: a dull, glowless slab with a cracked-cross mark (told apart by shape, not only colour). */
+const stoneTileArt: TileArt = {
+  margin: () => 2,
+  paint(d) {
+    const { ctx, cx, cy, cell } = d;
+    const x = cx - cell / 2;
+    const y = cy - cell / 2;
+    ctx.save();
+    roundRectPath(ctx, x, y, cell, cell, d.radius * 0.5);
+    ctx.fillStyle = STONE_FILL;
+    ctx.fill();
+    ctx.lineWidth = Math.max(1.5, cell * 0.04);
+    ctx.strokeStyle = STONE_EDGE;
+    ctx.stroke();
+    const k = cell * 0.22;
+    ctx.beginPath();
+    ctx.moveTo(cx - k, cy - k);
+    ctx.lineTo(cx + k, cy + k);
+    ctx.moveTo(cx + k, cy - k);
+    ctx.lineTo(cx - k, cy + k);
+    ctx.stroke();
+    ctx.restore();
+  },
+};
+
+const PRISM_ACCENT = '#ffffff';
+
+/** Prism: a bright diamond that merges with any number. */
+const prismTileArt: TileArt = {
+  margin: () => 16,
+  paint(d) {
+    const { ctx, cx, cy, cell, pixelRatio } = d;
+    const x = cx - cell / 2;
+    const y = cy - cell / 2;
+    ctx.save();
+    roundRectPath(ctx, x, y, cell, cell, d.radius);
+    ctx.shadowColor = PRISM_ACCENT;
+    ctx.shadowBlur = 14 * pixelRatio;
+    ctx.fillStyle = d.theme.tileBase;
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.lineWidth = Math.max(1.5, cell * 0.035);
+    ctx.strokeStyle = PRISM_ACCENT;
+    ctx.stroke();
+    const k = cell * 0.26;
+    ctx.beginPath();
+    ctx.moveTo(cx, cy - k);
+    ctx.lineTo(cx + k, cy);
+    ctx.lineTo(cx, cy + k);
+    ctx.lineTo(cx - k, cy);
+    ctx.closePath();
+    ctx.fillStyle = PRISM_ACCENT;
+    ctx.fill();
+    ctx.restore();
+  },
+};
+
 /** Art per tile kind. A new `TileKind` fails to compile until it gets art here. */
 export const TILE_ART: Record<TileKind, TileArt> = {
   number: numberTileArt,
+  stone: stoneTileArt,
+  prism: prismTileArt,
 };
 
-/** Drawn live over a tile of any kind, in order (e.g. ice, curse marks). */
-export const STATUS_OVERLAYS: StatusOverlay[] = [];
+const ICE = '#9be7ff';
+const CURSE = '#b04cff';
+
+/** Ice: a frosty inner frame plus the remaining frozen moves in the corner. */
+const iceOverlay: StatusOverlay = (d) => {
+  const turns = d.frame.status.frozenTurns;
+  if (turns <= 0) return;
+  const { ctx, cx, cy, size, radius } = d;
+  ctx.save();
+  const inset = size * 0.08;
+  roundRectPath(
+    ctx,
+    cx - size / 2 + inset,
+    cy - size / 2 + inset,
+    size - inset * 2,
+    size - inset * 2,
+    radius * 0.7,
+  );
+  ctx.setLineDash([size * 0.08, size * 0.05]);
+  ctx.lineWidth = Math.max(1.5, size * 0.04);
+  ctx.strokeStyle = ICE;
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.font = `700 ${size * 0.2}px ${d.theme.fontFamily}`;
+  ctx.textAlign = 'right';
+  ctx.textBaseline = 'top';
+  ctx.fillStyle = ICE;
+  ctx.fillText(String(turns), cx + size / 2 - inset * 1.4, cy - size / 2 + inset * 1.2);
+  ctx.restore();
+};
+
+/** Curse: a "½" badge, since a cursed merge yields half. */
+const curseOverlay: StatusOverlay = (d) => {
+  if (!d.frame.status.cursed) return;
+  const { ctx, cx, cy, size } = d;
+  ctx.save();
+  const r = size * 0.13;
+  const bx = cx - size / 2 + r * 1.5;
+  const by = cy + size / 2 - r * 1.5;
+  ctx.beginPath();
+  ctx.arc(bx, by, r, 0, Math.PI * 2);
+  ctx.fillStyle = CURSE;
+  ctx.fill();
+  ctx.font = `800 ${r * 1.3}px ${d.theme.fontFamily}`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle = '#ffffff';
+  ctx.fillText('½', bx, by);
+  ctx.restore();
+};
+
+/** Drawn live over a tile of any kind, in order. */
+export const STATUS_OVERLAYS: StatusOverlay[] = [iceOverlay, curseOverlay];

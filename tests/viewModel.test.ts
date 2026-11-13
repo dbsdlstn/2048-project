@@ -1,12 +1,22 @@
 import { describe, expect, it } from 'vitest';
 import {
   DIRECTIONS,
+  RELIC_IDS,
   listTiles,
   move,
   newGame,
+  playTurn,
+  runDirections,
+  runMove,
+  startRun,
   stateFromGrid,
+  chooseRelic,
+  NO_HAZARDS,
+  createBossState,
   type Direction,
   type GameState,
+  type TileKind,
+  type TileStatus,
 } from '../src/core';
 import { BoardView, DEFAULT_TIMINGS, type SpriteFrame } from '../src/render';
 
@@ -32,7 +42,7 @@ describe('BoardView', () => {
   it('a new game spawns tiles that scale in from 0', () => {
     const game = newGame({ seed: 'view' });
     const view = new BoardView(4);
-    view.apply(game.events, 1000);
+    view.apply(game.phases, 1000);
     const atStart = view.frame(1000);
     expect(atStart).toHaveLength(2);
     expect(atStart.every((f) => f.scale === 0)).toBe(true);
@@ -53,7 +63,7 @@ describe('BoardView', () => {
     const view = new BoardView(4);
     view.syncTo(state);
     const result = move(state, 'left');
-    view.apply(result.events, 0);
+    view.apply(result.phases, 0);
 
     const mid = byId(view.frame(T.slide / 2), 1);
     expect(mid?.row).toBe(0);
@@ -75,7 +85,7 @@ describe('BoardView', () => {
     const result = move(state, 'left');
     const merge = result.events.find((e) => e.type === 'merge');
     if (merge?.type !== 'merge') throw new Error('expected a merge');
-    view.apply(result.events, 0);
+    view.apply(result.phases, 0);
 
     // During the slide: both sources visible, result hidden.
     const during = view.frame(T.slide / 2);
@@ -107,7 +117,7 @@ describe('BoardView', () => {
     const result = move(state, 'left');
     const spawn = result.events.find((e) => e.type === 'spawn');
     if (spawn?.type !== 'spawn') throw new Error('expected a spawn');
-    view.apply(result.events, 0);
+    view.apply(result.phases, 0);
     expect(byId(view.frame(T.slide / 2), spawn.tileId)).toBeUndefined();
     const end = T.slide + T.spawnDelay + T.spawn;
     expect(byId(view.frame(end), spawn.tileId)?.scale).toBe(1);
@@ -119,14 +129,14 @@ describe('BoardView', () => {
     const first = newGame({ seed: 'long-view' });
     let state = first.state;
     const view = new BoardView(4);
-    view.apply(first.events, 0);
+    view.apply(first.phases, 0);
     let now = 0;
     for (let i = 0; i < 400 && !state.over; i++) {
       const result = move(state, DIRECTIONS[(i * 7) % 4] as Direction);
       if (!result.moved) continue;
       // Alternate between waiting for animations and interrupting them early.
       now += i % 3 === 0 ? 1000 : 15;
-      view.apply(result.events, now);
+      view.apply(result.phases, now);
       state = result.state;
       view.update(now + 1000);
       expect(settled(view, now + 1000)).toEqual(expected(state));
@@ -138,7 +148,7 @@ describe('BoardView', () => {
   it('finish() fast-forwards everything to the end state', () => {
     const game = newGame({ seed: 3 });
     const view = new BoardView(4);
-    view.apply(game.events, 0);
+    view.apply(game.phases, 0);
     view.finish();
     expect(view.isAnimating(0)).toBe(false);
     expect(view.frame(0).every((f) => f.scale === 1)).toBe(true);
@@ -148,9 +158,141 @@ describe('BoardView', () => {
     const view = new BoardView(4);
     expect(() => {
       view.apply(
-        [{ type: 'move', tileId: 99, from: { row: 0, col: 0 }, to: { row: 0, col: 1 } }],
+        [
+          {
+            kind: 'slide',
+            events: [
+              { type: 'move', tileId: 99, from: { row: 0, col: 0 }, to: { row: 0, col: 1 } },
+            ],
+          },
+        ],
         0,
       );
     }).toThrow(/unknown tile 99/);
+  });
+
+  it('plays phases one after another: a stone breaks only after the slide ends', () => {
+    // [2, 2, S, _] left: merge, then the stone (id 3) breaks in the resolve phase.
+    const board = stateFromGrid([
+      [2, 2, { kind: 'stone' }, 0],
+      [0, 0, 0, 0],
+      [0, 0, 0, 0],
+      [0, 0, 0, 0],
+    ]);
+    const out = playTurn({
+      board,
+      direction: 'left',
+      relics: [],
+      rules: {
+        fourChance: 0.1,
+        chainDepth: 0,
+        diagonalBreakFrom: null,
+        moveLimitBonus: 0,
+        bossPeriodBonus: 0,
+      },
+      hazards: NO_HAZARDS,
+      boss: null,
+    });
+    const view = new BoardView(4);
+    view.syncTo(board);
+    view.apply(out.phases, 0);
+    const resolveStart = T.slide + T.spawnDelay;
+    // Still full size during the slide and right before the resolve phase starts.
+    expect(byId(view.frame(T.slide - 1), 3)?.scale).toBe(1);
+    expect(byId(view.frame(resolveStart), 3)?.scale).toBe(1);
+    // Shrinking during the resolve phase, gone after it.
+    expect(byId(view.frame(resolveStart + T.destroy / 2), 3)?.scale).toBeLessThan(1);
+    expect(byId(view.frame(resolveStart + T.destroy), 3)).toBeUndefined();
+    // The spawn waits for the resolve phase.
+    const spawnStart = resolveStart + T.destroy + T.spawnDelay;
+    const spawned = out.phases.find((p) => p.kind === 'spawn')?.events[0];
+    if (spawned?.type !== 'spawn') throw new Error('expected a spawn');
+    expect(byId(view.frame(spawnStart - 1), spawned.tileId)).toBeUndefined();
+    expect(byId(view.frame(spawnStart + T.spawn), spawned.tileId)?.scale).toBe(1);
+  });
+
+  it('value and status changes take effect when their phase starts', () => {
+    const board = stateFromGrid([
+      [64, 0, 0, 0],
+      [0, 0, 0, 0],
+      [0, 0, 0, 0],
+      [0, 0, 0, 0],
+    ]);
+    const out = playTurn({
+      board,
+      direction: 'right',
+      relics: [],
+      rules: {
+        fourChance: 0.1,
+        chainDepth: 0,
+        diagonalBreakFrom: null,
+        moveLimitBonus: 0,
+        bossPeriodBonus: 0,
+      },
+      hazards: NO_HAZARDS,
+      boss: { ...createBossState('corroder'), turnsUntil: 1 },
+    });
+    const view = new BoardView(4);
+    view.syncTo(board);
+    view.apply(out.phases, 0);
+    expect(byId(view.frame(T.slide), 1)?.value).toBe(64);
+    expect(byId(view.frame(T.slide + T.spawnDelay), 1)?.value).toBe(32);
+    view.finish();
+    expect(byId(view.frame(0), 1)?.value).toBe(32);
+  });
+
+  it('a fully replayed view equals the core state on hazard, boss and relic turns', () => {
+    const full = (view: BoardView, now: number) =>
+      new Map(
+        view
+          .frame(now)
+          .map((f) => [
+            f.id,
+            { row: f.row, col: f.col, value: f.value, kind: f.kind, status: f.status },
+          ]),
+      );
+    const core = (state: GameState) =>
+      new Map<
+        number,
+        { row: number; col: number; value: number; kind: TileKind; status: TileStatus }
+      >(
+        listTiles(state).map(({ tile, pos }) => [
+          tile.id,
+          { ...pos, value: tile.value, kind: tile.kind, status: tile.status },
+        ]),
+      );
+    for (const [mode, stageIndex] of [
+      ['run', 1],
+      ['run', 3],
+      ['run', 7],
+      ['run', 11],
+      ['endless', 0],
+    ] as const) {
+      const first = startRun(mode, `view-${mode}-${stageIndex}`, {
+        stageIndex,
+        relics: [...RELIC_IDS],
+      });
+      let run = first.run;
+      const view = new BoardView(4);
+      view.apply(first.phases, 0);
+      let now = 0;
+      for (let i = 0; i < 300; i++) {
+        let step;
+        if (run.status === 'offer') step = chooseRelic(run, run.offer[0] ?? null);
+        else if (run.status === 'playing') {
+          const dirs = runDirections(run);
+          if (dirs.length === 0) break;
+          step = runMove(run, dirs[(i * 5) % dirs.length] as Direction);
+        } else break;
+        if (!step.changed) break;
+        now += i % 3 === 0 ? 2000 : 25;
+        if (step.boardReplaced) view.clear();
+        view.apply(step.phases, now);
+        run = step.run;
+        view.update(now + 2000);
+        expect(full(view, now + 2000)).toEqual(core(run.board));
+      }
+      expect(view.spriteCount).toBe(listTiles(run.board).length);
+    }
   });
 });

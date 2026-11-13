@@ -2,7 +2,7 @@
 
 이 문서는 이 프로젝트를 만들면서 **게임 개발을 공부하기 위한 교재**입니다.
 변경 기록이 아니라, "왜 이렇게 만들었는가"를 이해하고 직접 손으로 연습해 볼 수 있도록 쓰여 있습니다.
-단계가 끝날 때마다 새 장(章)이 추가됩니다.
+단계가 끝날 때마다 새 장(章)이 추가되고, 앞 장의 내용도 바뀐 코드에 맞게 고쳐집니다.
 
 ## 목차
 
@@ -27,7 +27,15 @@
   - [3.7 컨트롤러와 HUD: 얇은 접착층](#37-컨트롤러와-hud-얇은-접착층)
   - [3.8 글로우 스프라이트 캐시](#38-글로우-스프라이트-캐시)
   - [3.9 주입 가능한 시계와 디버그 훅](#39-주입-가능한-시계와-디버그-훅)
-- [4. 설계 결정 기록](#4-설계-결정-기록)
+- [4. 3a단계: 로그라이크 코어](#4-3a단계-로그라이크-코어)
+  - [4.1 턴 단계(phase)와 인과 관계](#41-턴-단계phase와-인과-관계)
+  - [4.2 방해 타일: 규칙을 함수와 매개변수로](#42-방해-타일-규칙을-함수와-매개변수로)
+  - [4.3 상태 기계: 런과 무한 모드](#43-상태-기계-런과-무한-모드)
+  - [4.4 데이터 주도 설계와 훅 시스템](#44-데이터-주도-설계와-훅-시스템)
+  - [4.5 로그라이크 유물과 시너지 설계](#45-로그라이크-유물과-시너지-설계)
+  - [4.6 보스 규칙과 "계산할 수 있는 정보는 보여 준다"](#46-보스-규칙과-계산할-수-있는-정보는-보여-준다)
+  - [4.7 시뮬레이션으로 밸런스 잡기](#47-시뮬레이션으로-밸런스-잡기)
+- [5. 설계 결정 기록](#5-설계-결정-기록)
 - [부록: 자주 쓰는 명령어](#부록-자주-쓰는-명령어)
 
 ---
@@ -60,17 +68,25 @@
 
 - **입력 계층**은 "어느 방향으로 밀었는가"만 알아내서 `Direction` 하나로 바꿉니다. 손가락 좌표나 키 코드는 코어까지 내려가지 않습니다.
 - **컨트롤러**(`src/game/controller.ts`)는 현재 게임 상태를 들고 있다가, 방향이 들어오면 코어에 넘기고 결과를 렌더러와 HUD에 나눠 줍니다. 규칙은 판단하지 않는 얇은 접착층입니다.
-- **코어**는 현재 상태와 방향을 받아 **새 상태**와 **이벤트 목록**을 돌려줍니다. 화면, 시간, 애니메이션을 전혀 모릅니다.
-- **렌더 계층**은 이벤트 목록("3번 타일이 (0,3)에서 (0,1)로 이동", "1·2번이 합쳐져 5번 생성"…)을 읽어 그대로 애니메이션으로 재생합니다. **HUD**는 `score`·`gameOver` 같은 이벤트를 보고 숫자와 오버레이를 바꿉니다.
+- **코어**는 현재 상태와 방향을 받아 **새 상태**와 **이벤트 목록**을 돌려줍니다. 화면, 시간, 애니메이션을 전혀 모릅니다. 3a단계부터 이벤트는 **단계(phase)** 로 묶여 나옵니다(미끄러짐 → 돌 파괴 → 보스 → 생성 → 마무리, 4.1장).
+- **렌더 계층**은 이벤트 목록("3번 타일이 (0,3)에서 (0,1)로 이동", "1·2번이 합쳐져 5번 생성"…)을 읽어 그대로 애니메이션으로 재생합니다. 단계는 하나씩 차례로, 한 단계 안의 이벤트는 동시에 재생합니다. **HUD**는 `score`·`gameOver` 같은 이벤트를 보고 숫자와 오버레이를 바꿉니다.
 - **저장 계층**은 상태 객체를 JSON으로 저장합니다. 상태가 평범한 데이터이기 때문에 가능한 일입니다.
 
 이 구조의 핵심은 **"규칙을 판단하는 곳은 코어 단 한 곳"** 이라는 점입니다. 렌더러는 규칙을 다시 계산하지 않고, 코어가 알려준 사실만 보여 줍니다.
+
+로그라이크 모드에서는 컨트롤러 자리에 **런 상태 기계**(`src/core/run.ts`)가 한 겹 더 들어갑니다. `runMove(run, 'left')`가 `{ run, phases, events }`를 돌려주고, 화면(3b단계)은 `run.status`를 보고 "유물 선택", "승리", "실패" 화면을 고릅니다.
+
+```
+ 방향 ──▶ runMove(run, dir) ──▶ playTurn(보드, 유물, 방해 수치, 보스) ──▶ 단계별 이벤트
+                │                                                          │
+                └── 목표 판정·유물 제시·실패 판정(judge) ◀───────────────────┘
+```
 
 ### 1.2 폴더별 역할
 
 | 폴더          | 역할                                                                 | 상태                                       |
 | ------------- | -------------------------------------------------------------------- | ------------------------------------------ |
-| `src/core/`   | 순수 게임 로직. DOM 없음, 테스트 대상                                | 1단계 ✔                                    |
+| `src/core/`   | 순수 게임 로직. DOM 없음, 테스트 대상                                | 1단계 ✔, 3a단계에서 로그라이크 계층 추가   |
 | `src/render/` | Canvas 보드 렌더러, 트윈/이징, 뷰 모델 (파티클·화면 흔들림은 5단계)  | 2단계 ✔                                    |
 | `src/input/`  | 포인터 스와이프 + 키보드 → `Direction`                               | 2단계 ✔                                    |
 | `src/ui/`     | DOM 오버레이: HUD, 게임 오버 화면 (메뉴·유물 선택은 3~4단계)         | 2단계 ✔ (일부)                             |
@@ -78,6 +94,7 @@
 | `src/audio/`  | WebAudio로 합성한 효과음                                             | 5단계 예정                                 |
 | `src/save/`   | localStorage 저장(최고 기록, 진행 중인 런, 설정)                     | 4단계 예정                                 |
 | `tests/`      | Vitest 단위 테스트 (나중에 Playwright 스모크 테스트)                 | 1단계 ✔, 2단계에서 렌더·입력·컨트롤러 추가 |
+| `tools/`      | 개발용 명령줄 도구 (밸런스 봇 시뮬레이터 `npm run sim`)              | 3a단계 ✔                                   |
 | `docs/`       | 이 문서                                                              | 매 단계 갱신                               |
 
 1단계에서 만든 `src/core/` 파일:
@@ -91,6 +108,23 @@
 | `src/core/tile.ts`    | 타일 생성과 "합체 규칙"(합쳐지는가? 무엇이 되는가?)           |
 | `src/core/board.ts`   | 새 게임, 이동·합체, 타일 생성, 게임 오버 판정                 |
 | `src/core/index.ts`   | 코어의 공개 입구. 바깥에서는 여기서만 import                  |
+
+3a단계에서 만들거나 크게 바꾼 파일:
+
+| 파일                        | 내용                                                                                        |
+| --------------------------- | ------------------------------------------------------------------------------------------- |
+| `src/core/types.ts`         | 타일 종류(`stone`, `prism`), 새 이벤트(파괴·상태·값 변경·섞기·봉쇄…), `TurnPhase`           |
+| `src/core/board.ts`         | `slide`가 벽(봉쇄 줄)과 얼음(고정 타일)을 처리, 합체 결과를 정하는 `resolveMerge` 주입 지점 |
+| `src/core/hazards.ts`       | 돌·얼음·저주: 매개변수(`HazardParams`), 돌 파괴, 얼음 녹기, 방해 굴림                       |
+| `src/core/bosses.ts`        | 보스 3종(봉쇄자·부식자·혼돈), 카운트다운 상태, 다음 발동 미리보기                           |
+| `src/core/stage.ts`         | 목표 3종, 스테이지 진행도, 목표 판정, 한국어 목표·방해 설명, 키워드                         |
+| `src/core/relics.ts`        | 유물 16종 정의(이름·설명·희귀도·훅), 규칙 수정 합성, 제시 추첨과 "죽은 선택지" 걸러내기     |
+| `src/core/turn.ts`          | 로그라이크 한 턴 엔진: 단계 순서대로 실행하고 `TurnPhase` 목록을 만듦                       |
+| `src/core/run.ts`           | 런/무한 모드 상태 기계: `startRun`, `runMove`, `chooseRelic`, `useActive`와 조회 함수들     |
+| `src/core/balance.ts`       | 스테이지 표, 보스 주기, 무한 모드 증가율, 유물 수치, 희귀도 가중치 — 수치는 전부 여기       |
+| `src/render/viewModel.ts`   | 단계를 차례로 재생, 트윈을 "트랙"(연속 트윈 목록)으로, 파괴·상태·값 변경·섞기 표시          |
+| `src/render/tilePainter.ts` | 돌·프리즘 그림, 얼음(점선 테두리 + 남은 턴)·저주(½ 배지) 오버레이                           |
+| `tools/simulate.ts`         | 밸런스 봇 시뮬레이터: 무작위·탐욕·구석 봇으로 스테이지별 클리어율과 유물 효과를 표로 출력   |
 
 2단계에서 만든 파일:
 
@@ -223,16 +257,20 @@ export function move(
   direction: Direction,
   rules: CoreRules = DEFAULT_RULES,
 ): TurnResult {
-  if (state.over) return { state, moved: false, events: [] };
+  if (state.over) return toTurnResult(state, false, []);
 
   const slid = slide(state, direction);
-  if (!slid.moved) return { state, moved: false, events: [] };
+  if (!slid.moved) return toTurnResult(state, false, []);
   // ... 점수 반영 → 타일 생성 → 게임 오버 판정
-  return { state: next, moved: true, events };
+  return toTurnResult(next, true, [
+    { kind: 'slide', events: slideEvents },
+    { kind: 'spawn', events: spawned.events },
+    { kind: 'end', events: endEvents },
+  ]);
 }
 ```
 
-함수 시그니처만 봐도 이 함수가 하는 일이 다 드러납니다: **(상태, 방향) → (새 상태, 움직였는가, 무슨 일이 있었나)**.
+함수 시그니처만 봐도 이 함수가 하는 일이 다 드러납니다: **(상태, 방향) → (새 상태, 움직였는가, 무슨 일이 어떤 순서로 있었나)**.
 숨은 입력(전역 변수, 현재 시간)도 숨은 출력(화면 변경)도 없습니다.
 
 규칙의 "판단"도 작게 쪼개 한 곳에 모았습니다.
@@ -244,7 +282,7 @@ export function mergedValue(leader: Tile, follower: Tile): number { ... }
 export function mergeScore(value: number): number { ... }
 ```
 
-3단계에서 돌 타일, 와일드 타일, 저주 상태가 들어오면 **이 세 함수만 고치면** 이동 알고리즘은 그대로 둘 수 있습니다.
+3a단계에서 돌·프리즘 타일이 들어올 때 실제로 `canMerge`(돌은 합체 불가, 프리즘은 아무 숫자와 합체)와 `mergedValue`(프리즘은 상대를 2배로)만 고쳤고, 이동 알고리즘은 "벽과 얼음"이라는 새 개념이 필요할 때만 손댔습니다(4.2장).
 
 #### 연습 과제
 
@@ -343,7 +381,7 @@ export type TurnEvent =
   | { type: 'gameOver' };
 ```
 
-순서 약속: **move/merge(한 번의 슬라이드로 동시에) → score → spawn → gameOver**.
+순서 약속: **move/merge(한 번의 슬라이드로 동시에) → score → spawn → gameOver**. 3a단계에서 이 약속은 "단계(phase)"라는 명시적인 구조가 되었습니다. `TurnResult.phases`가 단계 목록이고, `events`는 그것을 이어 붙인 목록입니다(4.1장).
 
 예: `[2, 2, _, 4]`를 왼쪽으로 밀면 (id: 왼쪽 2=1, 오른쪽 2=2, 4=3)
 
@@ -468,7 +506,7 @@ ESLint의 `strictTypeChecked`는 타입 정보까지 보고 판단합니다. 예
 return leader.kind === 'number' && follower.kind === 'number' && ...
 ```
 
-그래서 `VALUE_MERGING_KINDS`라는 집합(Set)을 두는 데이터 주도 방식으로 바꿨습니다. 3단계에서 종류가 늘어나면 집합에 넣기만 하면 됩니다.
+그래서 1단계에서는 `VALUE_MERGING_KINDS`라는 집합(Set)으로 우회했습니다. 3a단계에서 `stone`, `prism`이 실제로 생기자 비교가 더 이상 "항상 참"이 아니게 되어, 읽기 쉬운 명시적 비교(`leader.kind === 'prism' && follower.kind === 'number'` …)로 돌아갔습니다. 린트 경고가 "아직 없는 경우를 위한 코드"를 알려 준 셈입니다.
 
 `eslint-config-prettier`는 설정 맨 마지막에 둡니다. ESLint의 "모양" 규칙을 꺼서 Prettier와 싸우지 않게 하는 역할입니다.
 
@@ -629,7 +667,7 @@ export function sample(tw: Tween, now: number): number {
 
 #### 어디에 쓰였나
 
-- `src/render/viewModel.ts`의 `BoardView` — `apply(events, now)`, `update(now)`, `frame(now)`, `finish()`, `syncTo(state)`
+- `src/render/viewModel.ts`의 `BoardView` — `apply(phases, now)`, `update(now)`, `frame(now)`, `finish()`, `syncTo(state)`
 - 시간을 인자로 받으므로 DOM 없이 Node에서 테스트합니다: `tests/viewModel.test.ts`
 
 #### 핵심 코드
@@ -637,11 +675,11 @@ export function sample(tw: Tween, now: number): number {
 각 이벤트가 스프라이트의 트윈으로 바뀝니다.
 
 ```ts
-// src/render/viewModel.ts — apply() 중에서
+// src/render/viewModel.ts — schedulePhase() 중에서 (start = 이 단계의 시작 시각)
 case 'move': {
   const s = this.require(e.tileId);
-  s.row = tween(e.from.row, e.to.row, now, t.slide, easeOutCubic);
-  s.col = tween(e.from.col, e.to.col, now, t.slide, easeOutCubic);
+  s.row.push(tween(e.from.row, e.to.row, start, t.slide, easeOutCubic));
+  s.col.push(tween(e.from.col, e.to.col, start, t.slide, easeOutCubic));
   break;
 }
 case 'merge': {
@@ -673,6 +711,11 @@ case 'spawn': // 미끄러짐이 끝난 뒤 크기 0 → 1
 ```
 
 그리기는 `frame(now)`가 돌려준 "그 순간의 값"만 보면 됩니다. 페인터는 애니메이션을 몰라도 됩니다.
+
+3a단계에서 한 턴이 여러 단계로 나뉘면서 두 가지가 바뀌었습니다(4.1장).
+
+- `apply(phases, now)`는 단계를 **차례로** 예약합니다. 각 단계는 앞 단계의 보드 움직임이 끝난 뒤(+`spawnDelay`) 시작하고, 보여 줄 것이 없는 단계(점수, 유물 발동 표시만 있는 단계)는 시간을 쓰지 않습니다. 위 시간표는 "미끄러짐 단계 → 생성 단계"인 일반 턴의 모습 그대로입니다.
+- 한 타일이 한 턴에 여러 번 움직일 수 있게 되었습니다(미끄러짐 → 연쇄 합체 → 보스의 섞기). 그래서 `row`/`col`/`scale`은 트윈 하나가 아니라 **트랙**(시간 순서대로 이어지는 트윈 목록)입니다. 값·상태 변화(`valueChange`, `statusChange`)는 트윈이 아니라 "이 시각부터 이 값"인 예약(`changes`)입니다. `finish()`는 여전히 모든 것을 끝 상태로 건너뜁니다.
 
 테스트 `stays in sync with the core over a long game, even when turns interrupt animation`은 400턴 동안, 애니메이션이 끝나기 전에 다음 턴을 끼워 넣기도 하면서, 매 턴 "뷰 모델이 다 재생된 모습 == 코어 상태"인지 확인합니다. 1단계의 `replaying events…` 테스트가 흉내 냈던 일을 이제 진짜 렌더러 코드가 통과하는 것입니다.
 
@@ -1083,7 +1126,585 @@ __neonRift.resume(); // 실제 시계로 복귀
 
 ---
 
-## 4. 설계 결정 기록
+## 4. 3a단계: 로그라이크 코어
+
+이 단계에서는 화면을 하나도 만들지 않았습니다. 방해 타일, 스테이지 목표, 보스, 유물, 런 흐름을 **전부 순수 코어 안에** 넣고, 테스트와 봇 시뮬레이션으로 검증했습니다. 화면(유물 선택, 결과 화면, HUD)은 3b단계에서 이 API 위에 올립니다.
+
+이 장의 중심 질문은 하나입니다. **"규칙이 복잡해져도 코어를 순수하고, 결정적이고, 저장 가능한 상태로 유지하려면 무엇을 지켜야 하는가?"**
+
+### 4.1 턴 단계(phase)와 인과 관계
+
+#### 왜 필요한가
+
+2단계까지 한 턴은 "미끄러짐 → 생성" 한 박자였습니다. 로그라이크 규칙이 들어오면 한 턴 안에서 **원인과 결과가 꼬리를 뭅니다.**
+
+```
+2와 2가 합쳐진다 → 그 옆의 돌이 부서진다 → (유물) 부서진 돌만큼 이동 +1
+              → (유물) 합쳐진 4가 옆의 4와 또 합쳐진다 → 그 옆의 돌도 부서진다
+→ 보스가 가장 큰 타일을 절반으로 깎는다 → 새 타일이 나오고 얼음이 붙는다 → 얼음이 한 칸 녹는다
+```
+
+이벤트를 전부 한 목록에 "동시에 일어난 일"로 넣으면, 렌더러는 돌이 합체보다 **먼저** 부서지는 그림을 그리거나, 원인을 추측해야 합니다. 그런데 원인을 아는 곳은 코어뿐입니다. 그래서 **코어가 단계의 경계를 정해서** 내보냅니다.
+
+- 한 단계(phase) 안의 이벤트는 **동시에** 일어납니다.
+- 단계와 단계는 **차례로** 일어납니다. 뒤 단계는 앞 단계의 결과를 원인으로 삼을 수 있습니다.
+
+#### 어디에 쓰였나
+
+- `src/core/types.ts`: `TurnPhaseKind`, `TurnPhase`, `TurnResult.phases`
+- `src/core/turn.ts`의 `playTurn`: 단계를 순서대로 실행하며 각 단계의 이벤트를 모읍니다.
+- `src/core/board.ts`의 `toTurnResult`: 빈 단계를 버리고 `events`(이어 붙인 목록)를 만듭니다.
+- `src/render/viewModel.ts`의 `apply(phases, now)`: 단계마다 시작 시각을 밀어 가며 예약합니다.
+- 테스트: `tests/run.test.ts`의 `phases` — 실제 런 600턴가량에서 단계 순서와 "이벤트는 그 순간 존재하는 타일만 가리킨다"를 검사하고, 여섯 종류의 단계가 모두 나왔는지도 확인합니다.
+
+#### 핵심 코드
+
+```ts
+// src/core/types.ts
+export type TurnPhaseKind = 'slide' | 'resolve' | 'chain' | 'boss' | 'spawn' | 'end';
+
+export interface TurnPhase {
+  readonly kind: TurnPhaseKind;
+  readonly events: readonly TurnEvent[];
+}
+```
+
+| 단계      | 무엇이 일어나나                                      | 대표 이벤트                                                  |
+| --------- | ---------------------------------------------------- | ------------------------------------------------------------ |
+| `slide`   | 미끄러짐과 합체                                      | `move`, `merge`, `trigger`(합체 유물), `score`               |
+| `resolve` | 바로 앞 미끄러짐의 결과: 돌 파괴, 그에 반응하는 유물 | `destroy`, `trigger`, `bonusMoves`                           |
+| `chain`   | (유물) 방금 생긴 타일의 추가 합체. 반복 가능         | `move`, `merge`, `score`                                     |
+| `boss`    | 보스 규칙 발동                                       | `trigger`, `lineLock`, `valueChange`, `shuffle`, `spawn`(돌) |
+| `spawn`   | 새 타일, 방해 타일, 상태 이상                        | `spawn`, `statusChange`                                      |
+| `end`     | 얼음 녹기, 봉쇄 해제, 턴 끝 유물, 클리어·실패 판정   | `statusChange`, `lineUnlock`, `score`, `stageCleared`…       |
+
+순서는 `slide → resolve → (chain → resolve)* → boss → spawn → end`이고, 비어 있는 단계는 내보내지 않습니다.
+
+```ts
+// src/core/turn.ts — playTurn() 요약
+const first = b.slidePass(direction, null); // 1. slide
+if (!first) return { ...input, moved: false, phases: [] };
+phases.push({ kind: 'slide', events: first.events });
+phases.push({ kind: 'resolve', events: b.resolve(first.sites, rules) });
+
+let fresh = first.created; // 2. chain (유물이 있을 때만)
+for (let depth = 0; depth < rules.chainDepth; depth++) {
+  const pass = b.slidePass(direction, fresh);
+  if (!pass) break;
+  phases.push({ kind: 'chain', events: pass.events });
+  phases.push({ kind: 'resolve', events: b.resolve(pass.sites, rules) });
+  fresh = pass.created;
+}
+// 3. boss → 4. spawn → 5. end
+```
+
+뷰 모델 쪽에서는 각 단계가 "보드 움직임이 끝나는 시각"을 돌려주고, 다음 단계는 그 뒤에 시작합니다.
+
+```ts
+// src/render/viewModel.ts
+for (const phase of phases) {
+  const start = first ? cursor : cursor + this.timings.spawnDelay;
+  const duration = this.schedulePhase(phase.events, start);
+  if (duration <= 0) continue; // 점수·발동 표시뿐인 단계는 시간을 쓰지 않음
+  cursor = start + duration;
+  first = false;
+}
+```
+
+`[2, 2, 돌, _]`을 왼쪽으로 밀면 이렇게 재생됩니다.
+
+```
+시간(ms)  0          110 130        270 290          440
+slide     ├─미끄러짐─┤
+resolve                  ├─돌 축소─┤
+spawn                                   ├─새 타일 자라남─┤
+```
+
+**인과 검사 테스트**가 이 구조의 안전망입니다. 이전 보드에서 시작해 단계를 순서대로 적용하면서, `destroy`·`statusChange`·`shuffle` 같은 이벤트가 **그 순간 존재하는 타일만** 가리키는지, 다 적용한 결과가 코어의 새 보드와 같은지 봅니다(`tests/helpers.ts`의 `replayPhases`). 렌더러 쪽에서는 `a fully replayed view equals the core state on hazard, boss and relic turns`가 같은 일을 실제 `BoardView`로 합니다.
+
+#### 연습 과제
+
+1. `playTurn`에서 `boss` 단계를 `spawn` 뒤로 옮겨 보세요. 어떤 테스트가 깨지나요? 게임으로서는 어느 쪽이 공정할까요? (힌트: 혼돈의 섞기 직후 새 타일이 나오는 것과 그 반대)
+2. `chain` 단계마다 콤보 숫자("×2", "×3")를 띄우려면 렌더러는 무엇만 보면 될까요? 코어를 고칠 필요가 있나요?
+3. 생각해 보기: 단계를 나누지 않고 이벤트마다 `delay`(ms)를 붙이는 방식도 있습니다. 그 방식에서는 "애니메이션 속도 설정"이나 "빨리 감기"를 어디서 처리해야 할까요?
+
+---
+
+### 4.2 방해 타일: 규칙을 함수와 매개변수로
+
+#### 왜 필요한가
+
+방해 타일은 세 종류이고, 각각 성격이 다릅니다.
+
+| 방해 | 정체                          | 규칙                                                                                        |
+| ---- | ----------------------------- | ------------------------------------------------------------------------------------------- |
+| 돌   | 타일 **종류** (`stone`)       | 밀리지만 합체하지 않음. 상하좌우 이웃 칸에서 합체가 일어나면 부서짐                         |
+| 얼음 | 타일 **상태** (`frozenTurns`) | N번의 이동 동안 제자리 고정. 줄을 벽처럼 막음. 같은 수가 밀려 들어오면 합체하고 얼음이 깨짐 |
+| 저주 | 타일 **상태** (`cursed`)      | 저주받은 타일이 끼는 합체는 결과가 절반. 한 번 쓰면 사라짐                                  |
+
+"얼마나 자주 나오는가"는 규칙이 아니라 **밸런스**입니다. 그래서 규칙은 함수로, 빈도는 스테이지마다 다른 매개변수(`HazardParams`)로 나눴습니다. 같은 함수가 1막 2스테이지(돌만 조금)에도, 무한 모드의 후반(전부 많이)에도 쓰입니다.
+
+#### 어디에 쓰였나
+
+- `src/core/hazards.ts`: `HazardParams`, `rollHazards`(매 이동 방해 굴림), `breakStones`, `tickIce`, `placeStones`
+- `src/core/board.ts`의 `slide`: 얼음과 봉쇄 줄을 처리하는 유일한 곳
+- `src/core/board.ts`의 `defaultMergeOutcome`, `src/core/tile.ts`의 `canMerge`/`mergedValue`: 저주·돌·프리즘
+- `src/core/balance.ts`의 `STAGE_TABLE[*].hazards`, `run.ts`의 `endlessHazards(turn)`
+- 테스트: `tests/hazards.test.ts`
+
+#### 핵심 코드
+
+얼음과 봉쇄는 "줄을 구간으로 나누는" 같은 문제입니다. 차이는 경계가 합체를 받아 주느냐뿐입니다.
+
+```ts
+// src/core/board.ts — slide()의 줄 처리
+for (const [k, index] of line.entries()) {
+  const tile = state.cells[index] ?? null;
+  if (walls?.has(index)) {
+    // 봉쇄된 칸: 그대로 두고, 그 뒤에서 새 구간 시작
+    flush();
+    cells[index] = tile;
+    segStart = k + 1;
+    continue;
+  }
+  if (!tile) continue;
+  if (isFrozen(tile)) {
+    // 얼음: 이 타일이 다음 구간의 "앞 벽"이자 합체 상대
+    flush();
+    segStart = k;
+    placements = [{ kind: 'single', tile, fromIndex: index }];
+    continue;
+  }
+  // ... 이하 2048의 원래 압축·합체 규칙
+}
+```
+
+얼음 타일을 구간의 첫 자리(`segStart = k`)에 미리 놓아 두기만 하면, 뒤에서 밀려온 같은 수는 원래 규칙대로 그 위에 합쳐지고, 다른 수는 그 뒤에 쌓입니다. 얼음 때문에 새로 쓴 코드는 이 다섯 줄이 전부입니다.
+
+저주는 합체 결과를 정하는 함수 한 곳에 있습니다.
+
+```ts
+// src/core/board.ts
+export function defaultMergeOutcome(leader: Tile, follower: Tile): MergeOutcome {
+  const cursed = leader.status.cursed || follower.status.cursed;
+  const base = mergedValue(leader, follower);
+  const value = cursed ? Math.max(2, base / 2) : base;
+  return { kind: 'number', value, score: mergeScore(value), cursed };
+}
+```
+
+결과 타일은 언제나 새 id와 `NO_STATUS`로 만들어지므로 "저주가 한 번 쓰이면 사라진다"와 "얼음 타일에 합치면 얼음이 깨진다"는 따로 코드를 쓰지 않아도 저절로 성립합니다.
+
+돌 파괴는 **결과**이므로 `resolve` 단계에서 처리합니다. 합체가 끝난 뒤의 보드에서, 합체 위치의 이웃을 봅니다.
+
+```ts
+// src/core/hazards.ts — breakStones() 요약
+for (const m of merges) {
+  for (const n of neighbors(m.index, state.size)) if (isStone(n)) byMerge.add(n);
+}
+```
+
+`Set`을 쓰므로 두 합체가 같은 돌에 닿아도 한 번만 부서집니다.
+
+**방해 굴림의 순서**도 정해 두었습니다: 돌 → 얼음 → 저주. 세 확률은 매 이동 **항상** 굴립니다. 그래서 "이번엔 돌이 놓일 자리가 없었다" 같은 보드 사정이 다음 굴림들을 밀어내지 않습니다(테스트 `always rolls its three chances, whatever the board`).
+
+#### 연습 과제
+
+1. "얼음 타일에는 합칠 수 없다"로 규칙을 바꿔 보세요. `slide`에서 어디 한 줄만 바꾸면 되나요? 이 규칙에서는 얼음이 왜 훨씬 답답한지 직접 `stateFromGrid`로 몇 판 만들어 보세요.
+2. 새 방해 "자석": 매 턴 끝에 가장 작은 타일을 한 칸 가운데로 끌어당긴다. `HazardParams`에 무엇을 더하고, 어느 단계에서 어떤 이벤트로 내보내야 할까요?
+3. `rollHazards`가 확률을 "항상 굴리는" 대신 "놓을 수 있을 때만 굴리게" 바꿔 보고, `tests/run.test.ts`의 결정성 테스트가 여전히 통과하는지 보세요. 통과한다면, 그래도 원래 방식이 나은 이유는 무엇일까요?
+
+---
+
+### 4.3 상태 기계: 런과 무한 모드
+
+#### 왜 필요한가
+
+런은 "스테이지를 하는 중", "유물을 고르는 중", "이겼다", "졌다" 중 하나의 **상태**에 있고, 상태마다 받을 수 있는 입력이 다릅니다. 유물을 고르는 중에 스와이프가 들어오면? 이미 진 다음에 폭탄을 쓰면? 이런 질문에 `if`를 흩어 놓고 답하면 버그가 납니다.
+
+**상태 기계(state machine)** 는 "지금 상태 + 입력 → 다음 상태"를 한 곳에 모은 것입니다. 이 프로젝트에서는 상태가 `status` 필드 하나로 드러나고, 입력마다 함수가 하나씩 있습니다. 각 함수는 허용되지 않는 상태에서 호출되면 **아무것도 바꾸지 않고**(`changed: false`) 돌아옵니다.
+
+```
+run 모드
+            ┌─────────────── runMove / useActive ───────────────┐
+            ▼                                                    │
+ startRun ─▶ playing ── 목표 달성 ─▶ offer ── chooseRelic ─▶ playing(다음 스테이지)
+              │  └── 마지막 스테이지 달성 ─▶ victory
+              └── 이동 소진 / 막힘(구조 수단 없음) ─▶ gameOver
+
+endless 모드
+ startRun ─▶ playing ── 최고 타일이 64, 128, 256…에 처음 도달 ─▶ offer ── chooseRelic ─▶ playing
+              └── 막힘(구조 수단 없음) ─▶ gameOver
+```
+
+#### 어디에 쓰였나
+
+- `src/core/run.ts`: `RunState`, `RunStatus`, `startRun`, `runMove`, `chooseRelic`, `useActive`, 조회 함수(`currentStage`, `movesLeft`, `turnsUntilBoss`, `runDirections`, `canUseActive`, `totalScore`)
+- 상태가 평범한 데이터라서 JSON 저장이 그대로 됩니다(4단계 `localStorage`). 테스트 `a run saved with JSON mid-stage resumes with identical future`
+- 테스트: `tests/run.test.ts`
+
+#### 핵심 코드
+
+```ts
+// src/core/run.ts
+export type RunStatus = 'playing' | 'offer' | 'victory' | 'gameOver';
+
+export function runMove(run: RunState, direction: Direction): RunStep {
+  if (run.status !== 'playing') return unchanged(run); // 상태가 입력을 거른다
+  const out = playTurn({
+    board: run.board,
+    direction,
+    relics: run.relics,
+    rules: runRules(run),
+    hazards: runHazards(run),
+    boss: run.boss,
+  });
+  if (!out.moved) return unchanged(run);
+  // 진행도 갱신 → 되돌리기용 스냅샷 → 판정
+  const judged = judge({ ...run, board: out.board, /* ... */ undo: snapshot(run) });
+  // 판정 이벤트(stageCleared, stageFailed…)는 end 단계 끝에 붙인다
+}
+```
+
+모든 행동 뒤에는 같은 `judge`가 돌아 다음 상태를 정합니다. 목표 달성이 실패보다 먼저입니다(마지막 이동으로 목표를 채우면 클리어).
+
+```ts
+// src/core/run.ts — decide() 요약 (run 모드)
+if (goalStatus(spec.goal, run.progress).done) → stageCleared, 마지막이면 victory, 아니면 offer
+if (movesLeft(run) <= 0)                       → stageFailed('moves')
+if (isStuck(run) && !hasRescue(run))           → stageFailed('stuck')
+```
+
+`RunStep`은 화면이 알아야 할 것을 모두 담습니다.
+
+```ts
+export interface RunStep {
+  readonly run: RunState;
+  readonly changed: boolean; // 거절됐거나 아무 일도 없으면 false
+  readonly boardReplaced: boolean; // 새 스테이지·되돌리기: 뷰를 비우고 phases로 다시 쌓는다
+  readonly phases: readonly TurnPhase[];
+  readonly events: readonly TurnEvent[];
+}
+```
+
+**되돌리기는 상태 기계의 덤**입니다. 행동할 때마다 직전 상태(되돌리기 칸만 뺀 것)를 `run.undo`에 넣어 두고, 되돌리기 유물은 그것을 꺼내 놓습니다. 보드 안에 RNG 상태가 들어 있으므로 **난수까지 함께 돌아갑니다**. 같은 방향으로 다시 밀면 똑같은 타일이 똑같은 자리에 나옵니다(테스트 `restores the board and the random stream`). 되돌리기가 "운 다시 굴리기"가 되지 않게 하는 장치입니다.
+
+**보드는 스테이지마다 새로 시작합니다**(D25). 스테이지 목표가 "이 이동 수 안에 이것"이라는 짧은 퍼즐이 되고, 이어지는 것은 유물(빌드)과 누적 점수(`bankedScore`)뿐입니다.
+
+#### 연습 과제
+
+1. "유물 고르기 건너뛰기" 대신 "다시 뽑기(1회)"를 넣어 보세요. `RunState`에 무엇을 추가하고, 어떤 상태에서만 허용해야 하나요?
+2. `judge`에서 "목표 달성" 검사를 "이동 소진" 검사 아래로 내려 보세요. 어떤 테스트가 깨지나요? 플레이어 입장에서 어느 쪽이 맞을까요?
+3. 무한 모드에 "일시 정지" 상태를 추가한다면, 그것은 코어의 상태 기계에 들어가야 할까요, 화면 쪽에 있어야 할까요? 저장과 결정성을 기준으로 생각해 보세요.
+
+---
+
+### 4.4 데이터 주도 설계와 훅 시스템
+
+#### 왜 필요한가
+
+유물이 16개입니다. 각 유물을 `if (owns('corner')) ...`처럼 엔진 곳곳에 박아 넣으면, 유물을 하나 더할 때마다 엔진을 고치고, 어떤 유물이 어디에 영향을 주는지 한눈에 보이지 않습니다.
+
+**데이터 주도 설계**는 "유물이 무엇인지"를 데이터(정의 목록)로 적고, 엔진은 그 데이터를 읽어 정해진 시점에 실행만 하게 하는 방식입니다. 정해진 시점을 **훅(hook)** 이라고 부릅니다. 엔진은 "지금 합체가 일어났다, 할 말 있는 유물?" 하고 물을 뿐, 어떤 유물이 있는지 모릅니다.
+
+#### 어디에 쓰였나
+
+- `src/core/relics.ts`의 `RelicDef`(정의 형식), `DEFS`(16종 목록), `deriveRules`, `drawOffer`
+- `src/core/turn.ts`의 `TurnBuilder`: 훅을 부르고 효과를 적용하는 유일한 곳
+- 테스트: `tests/relics.test.ts` (유물마다 최소 1개)
+
+#### 핵심 코드
+
+```ts
+// src/core/relics.ts
+export interface RelicDef {
+  readonly id: RelicId;
+  readonly name: string; // 한국어 이름
+  readonly description: string; // 한 줄 설명 (수치는 balance.ts에서 끼워 넣음)
+  readonly rarity: Rarity;
+  readonly grants?: readonly Keyword[]; // 이 유물이 런에 더해 주는 키워드
+  readonly active?: ActiveSpec; // 사용 유물: 효과, 최대 충전, 스테이지당 회복
+  readonly isUseful?: (ctx: OfferContext) => boolean; // "죽은 선택지" 걸러내기
+  readonly modifyRules?: (rules: TurnRules) => TurnRules;
+  readonly onMerge?: (
+    ctx: MergeHookContext,
+    self: RelicInstance,
+  ) => { mod: MergeMod; counter?: number } | null;
+  readonly onStoneBreak?: (count: number, self: RelicInstance) => HookOutcome | null;
+  readonly onSpawn?: (self: RelicInstance) => HookOutcome | null;
+  readonly onTurnEnd?: (ctx: TurnEndContext, self: RelicInstance) => HookOutcome | null;
+  readonly onStageStart?: (self: RelicInstance) => HookOutcome | null;
+}
+```
+
+훅의 세 가지 약속이 이 설계의 핵심입니다.
+
+1. **훅은 순수 함수다.** 입력(상황, 자기 인스턴스)을 받아 **데이터**를 돌려줍니다: 새 카운터 값, 효과 목록(`{ kind: 'score', amount }`, `{ kind: 'bonusMoves', amount }`, `{ kind: 'charge', amount }`, `{ kind: 'placeTile', value }`, `{ kind: 'spawnPrism' }`). 상태를 직접 바꾸지 않습니다.
+2. **효과는 엔진이 적용한다.** `TurnBuilder.applyEffects`가 효과를 상태에 반영하고, 반영된 것이 있으면 `trigger` 이벤트(어느 유물이 발동했는지)를 앞에 붙입니다. 그래서 모든 유물 발동이 자동으로 화면에 보일 수 있습니다.
+3. **유물의 상태는 공통 형식이다.** 모든 유물 인스턴스는 `{ id, charges, counter }` 세 칸뿐입니다. "8번째 이동마다"는 `counter`로, "스테이지의 첫 2번 합체"도 `counter`로 셉니다. 저장 형식이 유물 종류에 따라 달라지지 않습니다.
+
+```ts
+// 예: 정의 두 개
+{
+  id: 'cornerAnchor', name: '모서리 닻', rarity: 'common',
+  description: `네 구석 칸에서 일어난 합체는 점수 ${T.cornerFactor}배`,
+  isUseful: (c) => c.has('scoreGoal'),
+  onMerge: (ctx) => (ctx.corner ? { mod: { scoreFactor: T.cornerFactor } } : null),
+},
+{
+  id: 'prismCore', name: '프리즘 코어', rarity: 'rare',
+  description: `${T.prismEvery}번 이동할 때마다 어떤 숫자와도 합쳐지는 프리즘 타일이 나온다`,
+  onSpawn: (self) =>
+    self.counter + 1 >= T.prismEvery
+      ? { counter: 0, effects: [{ kind: 'spawnPrism' }] }
+      : { counter: self.counter + 1 },
+},
+```
+
+**규칙 수정**은 접어 가기(fold)입니다. 기본 규칙에서 시작해 가진 유물의 `modifyRules`를 차례로 통과시킵니다. 매 이동 새로 계산하므로 규칙 자체는 저장하지 않습니다.
+
+```ts
+export function deriveRules(relics: readonly RelicInstance[], base = BASE_TURN_RULES): TurnRules {
+  return relics.reduce((rules, r) => RELICS[r.id].modifyRules?.(rules) ?? rules, base);
+}
+```
+
+합체 훅은 `slide`에 주입되는 합체 결정 함수(`resolveMerge`) 안에서 불립니다. 이동 알고리즘(`board.ts`)은 유물을 전혀 모르고, "합체 결과는 이 함수에게 물어본다"는 것만 압니다.
+
+#### 연습 과제
+
+1. 새 유물 "균형추: 가장자리가 아닌 가운데 4칸의 합체는 점수 +50%"를 추가해 보세요. `relics.ts`의 정의 하나와 테스트 하나면 충분해야 합니다. 엔진을 고쳐야 했다면 무엇이 부족했던 걸까요?
+2. 훅 `onStoneBreak`를 없애고 같은 일을 `onTurnEnd`(이번 턴 부순 돌 수를 받도록)로 해 보세요. 어느 쪽이 화면 연출(돌이 부서지는 바로 그 순간 "+1 이동")에 유리한가요?
+3. `RelicInstance`에 `counter` 대신 유물마다 다른 필드를 넣는 설계를 상상해 보세요. 저장·불러오기와 타입 정의는 어떻게 달라질까요?
+
+---
+
+### 4.5 로그라이크 유물과 시너지 설계
+
+#### 왜 필요한가
+
+유물 16개 중 플레이어가 한 런에서 보는 것은 30개 남짓의 제시 중 11개 선택입니다. 이 작은 풀에서 **"이번 런은 이 조합이 됐다"는 경험**이 나오려면, 유물들이 서로를 모르는데도 맞물려야 합니다. 동시에 고를 가치가 없는 선택지가 섞여 있으면 3택 1이 사실상 2택 1이 됩니다.
+
+#### 어디에 쓰였나
+
+- `src/core/relics.ts`의 정의 목록과 `drawOffer`
+- `src/core/stage.ts`의 `Keyword`와 `stageKeywords`
+- `src/core/run.ts`의 `offerContext`
+- 테스트: `tests/relics.test.ts`의 `offers ("no dead picks")`, `no relic refers to another relic by name`
+
+#### 핵심 코드
+
+설계 규칙(외부 자료 조사 노트 3장에서 가져온 원칙을 이 게임에 맞게 고친 것):
+
+1. **설명은 한 줄.** 한 줄에 안 들어가면 규칙이 너무 복잡하다는 신호입니다. 테스트가 줄바꿈과 길이를 검사합니다.
+2. **공통 숫자와 키워드만 건드린다.** 공통 숫자: 합체 값, 합체 점수, 한 이동의 합체 수, 남은 이동, 생성 확률, 충전, 보스 주기, 연쇄 깊이. 공통 키워드: 돌, 얼음, 저주, 구석, 프리즘.
+3. **다른 유물을 이름으로 지목하지 않는다.** 그래도 2번 덕분에 시너지가 생깁니다. 테스트가 설명 안에 다른 유물 이름이 없는지 검사합니다.
+4. **죽은 선택지 금지.** 남은 스테이지에서 쓸모가 없으면 제시하지 않습니다.
+
+| 유물 (id)                   | 한 줄 설명                                                                  | 훅                        | 희귀도 |
+| --------------------------- | --------------------------------------------------------------------------- | ------------------------- | ------ |
+| 연쇄 회로 (`chain`)         | 합체로 생긴 타일이 같은 수와 맞닿으면 이어서 합체한다 (최대 2번)            | `modifyRules`             | 희귀   |
+| 공명 증폭기 (`resonance`)   | 한 이동에서 합체가 1번 더 날 때마다 그 이동의 합체 점수 +50%                | `onTurnEnd`               | 고급   |
+| 균열 송곳 (`pickaxe`)       | 8 이상을 만든 합체는 대각선 이웃의 돌까지 부순다                            | `modifyRules`             | 고급   |
+| 프리즘 코어 (`prismCore`)   | 10번 이동할 때마다 어떤 숫자와도 합쳐지는 프리즘 타일이 나온다              | `onSpawn`                 | 희귀   |
+| 모서리 닻 (`cornerAnchor`)  | 네 구석 칸에서 일어난 합체는 점수 2배                                       | `onMerge`                 | 일반   |
+| 여분 태엽 (`spareSpring`)   | 모든 스테이지의 이동 제한 +6                                                | `modifyRules`             | 일반   |
+| 분해 펄스 (`bomb`)          | [사용] 고른 타일 하나를 없앤다 · 스테이지마다 1회                           | 사용(파괴)                | 일반   |
+| 역행 코일 (`undo`)          | [사용] 직전 행동을 되돌린다 · 스테이지마다 1회                              | 사용(되돌리기)            | 희귀   |
+| 정지 핀 (`freezePin`)       | [사용] 고른 타일을 3턴 동안 얼려 고정한다 · 최대 2회, 스테이지마다 1회 충전 | 사용(얼리기)              | 고급   |
+| 역상 필터 (`reverseFilter`) | 얼음이나 저주가 붙은 타일이 낀 합체는 점수 3배                              | `onMerge`                 | 고급   |
+| 잔해 연료 (`debrisFuel`)    | 돌이 하나 부서질 때마다 이동 +1                                             | `onStoneBreak`            | 일반   |
+| 쌍둥이 씨앗 (`twinSeed`)    | 새로 나오는 타일이 4일 확률 +20%                                            | `modifyRules`             | 고급   |
+| 점화 플러그 (`ignition`)    | 스테이지를 시작할 때 16 타일 하나를 놓는다                                  | `onStageStart`            | 일반   |
+| 지연 장막 (`delayVeil`)     | 보스 규칙의 발동 간격 +2턴                                                  | `modifyRules`             | 고급   |
+| 도약 렌즈 (`leapLens`)      | 스테이지의 첫 2번 합체는 결과가 2배가 된다                                  | `onStageStart`, `onMerge` | 고급   |
+| 축전 코일 (`capacitor`)     | 합체 12번마다 사용 유물의 충전 +1                                           | `onTurnEnd`               | 고급   |
+
+이름을 지목하지 않아도 생기는 조합의 예:
+
+- **연쇄 회로 + 공명 증폭기**: 연쇄 합체도 "한 이동의 합체 수"에 들어가므로 점수 배율이 커집니다.
+- **정지 핀 + 역상 필터**: 내 손으로 얼린 타일도 "얼음이 붙은 타일"입니다. 구석의 큰 타일을 얼려 두고 그 위에 합치면 3배.
+- **정지 핀 + 모서리 닻**: 구석 타일을 고정해 두면 구석 합체가 잘 일어납니다.
+- **분해 펄스 + 잔해 연료 + 축전 코일**: 폭탄으로 돌을 부숴도 "돌이 부서진" 것이라 이동이 늘고, 합체가 쌓이면 폭탄이 다시 찹니다.
+- **균열 송곳 + 잔해 연료**: 돌을 더 많이 부술수록 이동이 늘어납니다.
+
+**죽은 선택지 걸러내기.** 계획서의 "정화(저주 무효)"는 저주가 나오지 않는 1막에서는 아무 의미가 없고, 효과가 "나쁜 일이 안 일어난다"뿐이라 손맛도 없습니다. 그래서 같은 키워드를 **기회로 바꾸는** 역상 필터(얼음·저주가 낀 합체 점수 3배)로 다시 설계했습니다. 그래도 저주·얼음이 앞으로 없으면 쓸모가 없으므로, 각 유물이 `isUseful`로 "필요한 키워드"를 밝힙니다.
+
+```ts
+// src/core/run.ts — 남은 스테이지의 키워드 + 가진 유물이 주는 키워드
+function offerContext(run: RunState, fromIndex: number): OfferContext {
+  const keywords = grantedKeywords(run.relics); // 예: 정지 핀 → 'ice', 'active'
+  if (run.mode === 'endless') for (const k of ENDLESS_KEYWORDS) keywords.add(k);
+  else
+    for (const spec of STAGES.slice(fromIndex))
+      for (const k of stageKeywords(spec)) keywords.add(k);
+  return { has: (k) => keywords.has(k) };
+}
+```
+
+판단 기준은 이름이 아니라 키워드이므로 "정지 핀을 가지고 있으면 역상 필터가 제시될 수 있다"가 두 유물 모두 서로를 모르는 채로 성립합니다. 마지막 보스만 남았을 때 "돌" 관련 유물이 나오는 것은 혼돈 보스가 돌을 놓기 때문이고(`stageKeywords`가 `chaos`에 `stone`을 더함), 무한 모드에서는 이동 제한·보스 관련 유물이 나오지 않습니다.
+
+제시는 희귀도 가중치(일반 3, 고급 2, 희귀 1)로 중복 없이 3개를 뽑습니다(`drawOffer`). 런 전용 난수(`run.rng`)를 쓰므로 보드의 난수 흐름과 섞이지 않습니다.
+
+#### 연습 과제
+
+1. "점화 플러그"의 16이 무작위 칸이 아니라 "가장 큰 타일이 있는 구석"에 놓이게 바꿔 보세요. 4.7장의 유물 효과 표에서 이 유물의 수치가 어떻게 바뀌는지 `npm run sim`으로 확인해 보세요.
+2. 키워드 `'corner'`를 새로 만들고, 어떤 유물이 그것을 `grants`로 주고 어떤 유물이 그것을 `isUseful`에서 요구하게 할지 설계해 보세요. 이름 지목 없이 시너지를 만드는 연습입니다.
+3. 반대로, 일부러 나쁜 유물을 하나 만들어 보세요(예: "구석 합체 점수 2배, 단 구석이 아닌 합체는 0점"). 시뮬레이터에서 승률 차이가 크게 음수로 나오는지 확인해 봅니다.
+
+---
+
+### 4.6 보스 규칙과 "계산할 수 있는 정보는 보여 준다"
+
+#### 왜 필요한가
+
+보스는 막마다 하나씩, 일정한 주기로 판을 흔드는 규칙입니다. 이때 중요한 설계 원칙이 있습니다. **플레이어가 계산할 수 있는 정보는 숨기지 말고 보여 준다.** "부식자가 몇 턴 뒤에 무엇을 깎는가"는 플레이어가 손으로 세면 알 수 있습니다. 그걸 숨기면 메모하는 사람만 유리해지고, 보여 주면 모두가 "깎이기 전에 합쳐 버리자" 같은 판단을 할 수 있습니다(외부 자료 조사 노트 3장).
+
+이를 위해 보스의 카운트다운은 숨은 타이머가 아니라 **상태의 일부**입니다.
+
+| 보스                | 주기 | 효과                                                              |
+| ------------------- | ---- | ----------------------------------------------------------------- |
+| 봉쇄자 (`warden`)   | 5턴  | 무작위 한 줄(가로 또는 세로)을 2턴 동안 봉쇄: 드나들기·합체 불가  |
+| 부식자 (`corroder`) | 4턴  | 가장 큰 타일을 절반으로 (같으면 행 우선 첫 타일). 4 미만이면 무시 |
+| 혼돈 (`chaos`)      | 6턴  | 얼지 않은 타일을 전부 섞고 돌 1개를 놓음                          |
+
+#### 어디에 쓰였나
+
+- `src/core/bosses.ts`: `BOSSES`(한국어 이름·설명), `BossState`, `advanceBoss`, `tickLock`, `shuffleBoard`, `bossPreview`, `corroderTarget`
+- `src/core/run.ts`의 `turnsUntilBoss`, 봉쇄 해제 규칙 `releaseLockIfStuck`
+- 테스트: `tests/bosses.test.ts`
+
+#### 핵심 코드
+
+```ts
+// src/core/bosses.ts
+export interface BossState {
+  readonly id: BossId;
+  readonly period: number; // 기본 주기 + 유물 보너스
+  readonly turnsUntil: number; // 이 값이 0이 되는 이동에서 발동 → HUD가 그대로 표시
+  readonly lock: LockedLine | null;
+}
+
+export function advanceBoss(state: GameState, boss: BossState): BossStep {
+  const turnsUntil = boss.turnsUntil - 1;
+  if (turnsUntil > 0) return { state, boss: { ...boss, turnsUntil }, events: [], triggered: false };
+  const fired = fireBoss(state, { ...boss, turnsUntil: boss.period });
+  return { ...fired, triggered: true };
+}
+```
+
+`bossPreview(boss, board)`는 다음 발동이 무엇을 할지 알려 줍니다. 부식자는 대상 타일 id까지 미리 계산되므로 3b단계 화면은 그 타일에 표시를 달 수 있습니다. 봉쇄자가 고를 줄과 혼돈의 섞임 결과는 **난수**라서 미리 알 수 없고, 그래서 미리보기도 "무엇이 일어난다"까지만 줍니다. "계산할 수 있는 것"과 "운"의 경계가 그대로 코드에 드러납니다.
+
+봉쇄 규칙에는 안전장치가 하나 있습니다. **봉쇄 때문에만 막힌 보드라면 봉쇄가 즉시 풀립니다.** 봉쇄가 걸린 상태에서 움직일 수 없으면 턴이 흐르지 않으니 봉쇄도 영원히 안 풀리고, 플레이어는 자기 실수가 아닌 이유로 집니다. 그런 패배는 배울 것이 없어서 규칙으로 막았습니다.
+
+```ts
+// src/core/run.ts
+function releaseLockIfStuck(run: RunState) {
+  const lock = run.boss?.lock;
+  if (!run.boss || !lock || !isStuck(run) || !hasAvailableMoves(run.board))
+    return { run, events: [] };
+  return {
+    run: { ...run, boss: { ...run.boss, lock: null } },
+    events: [{ type: 'lineUnlock', axis: lock.axis, index: lock.index }],
+  };
+}
+```
+
+#### 연습 과제
+
+1. HUD를 상상하며 `bossPreview`가 돌려줘야 할 정보를 늘려 보세요. 예를 들어 혼돈은 "섞인 뒤 돌이 놓일 수 있는 칸 수"를 미리 알려 줄 수 있습니다. 이것은 계산 가능한 정보인가요?
+2. 봉쇄자가 무작위 대신 "타일이 가장 많은 줄"을 고르게 바꿔 보세요. 이제 미리보기로 줄을 보여 줄 수 있습니다. 게임이 더 쉬워질까요, 어려워질까요? 시뮬레이터로 확인해 보세요.
+3. 네 번째 보스를 설계해 보세요(예: "3턴마다 무작위 타일 하나를 얼린다"). 기존 이벤트만으로 표현되나요?
+
+---
+
+### 4.7 시뮬레이션으로 밸런스 잡기
+
+#### 왜 필요한가
+
+12스테이지 × (목표, 이동 제한, 방해 확률 6개) + 유물 16종의 수치를 손으로 플레이하며 맞추는 것은 불가능에 가깝습니다. 한 판에 20분이 걸리고, 운의 폭이 커서 몇 판으로는 아무것도 알 수 없습니다.
+
+코어가 순수 함수라는 것이 여기서 큰 보상이 됩니다. **봇**(정해진 규칙으로 방향을 고르는 함수)을 만들어 수백 개의 시드로 런을 돌리면 1분 안에 "1막 보스 클리어율 91%" 같은 숫자를 얻습니다. 숫자는 사람의 감각을 대신하지는 못하지만, **어디가 이상한지**는 정확히 짚어 줍니다.
+
+#### 어디에 쓰였나
+
+- `tools/simulate.ts` (`npm run sim`, `npm run sim -- --runs 1000`)
+- 실행기는 `tsx`(개발 의존성)입니다. 브라우저도 Vite도 없이 코어를 바로 실행합니다.
+- 조정 대상: `src/core/balance.ts`의 `STAGE_TABLE`, `RELIC_TUNING`
+
+#### 핵심 코드
+
+봇은 세 가지입니다. 모두 **다음 무작위 생성을 엿보지 않습니다**(미끄러짐 결과만 보고 판단). 엿보면 봇이 사람보다 훨씬 잘하게 되어 숫자가 의미를 잃습니다.
+
+| 봇       | 방식                                                                                                                                  | 대역                    |
+| -------- | ------------------------------------------------------------------------------------------------------------------------------------- | ----------------------- |
+| `random` | 가능한 방향 중 무작위                                                                                                                 | 규칙을 모르는 사람      |
+| `greedy` | 즉시 합체 점수가 가장 큰 방향                                                                                                         | 눈앞만 보는 사람        |
+| `corner` | 한 수 앞을 보고 "큰 수가 한쪽으로 정렬, 빈 칸 많음, 붙은 같은 수" 점수가 높은 방향. 돌 목표면 돌 파괴 가산. 막히면 폭탄·되돌리기 사용 | 구석 전략을 아는 중급자 |
+
+유물은 무작위로 고릅니다. 출력은 세 표입니다.
+
+1. **런 안에서의 스테이지별 클리어율**(그 스테이지까지 온 런 중 클리어한 비율)과 클리어 때 쓴 평균 이동 수
+2. **스테이지 단독, 유물 없음**: 각 스테이지를 처음부터 따로 돌린 클리어율과 실패 원인(이동 소진/막힘)
+3. **유물 효과**: 각 유물이 **처음 제시된 순간**에 그것을 고른 런과 다른 것을 고른 런의 승률 차이. 고르기가 무작위라서 작은 무작위 실험이 됩니다. "한 번이라도 가진 런"으로 비교하면 오래 살아남은 런일수록 제시를 많이 받아 그 유물을 가질 확률이 높아지므로(생존 편향), 모든 유물이 좋아 보이는 착시가 생깁니다. 실제로 처음엔 그렇게 짰다가 거의 모든 유물이 +10~+28점으로 나와서 고쳤습니다.
+
+**조정 기록**(코너 봇 기준, 목표: 1막은 거의 항상 통과, 3막 보스는 어렵지만 가능, 무작위 봇은 1막을 거의 못 넘음):
+
+| 단계 | 바꾼 것                                                                        | 이유(시뮬레이터가 보여 준 것)                                                 |
+| ---- | ------------------------------------------------------------------------------ | ----------------------------------------------------------------------------- |
+| 1    | 처음 짠 구석 봇(가중치 표 + 빈 칸) → 줄 단위 휴리스틱(정렬·빈 칸·붙은 같은 수) | 첫 구석 봇이 탐욕 봇보다 못했음. 봇이 약하면 모든 수치가 틀어짐               |
+| 2    | 1-1 점수 400 → 360, 1-2 돌 목표 이동 40 → 45                                   | 1막 초반에 코너 봇이 5% 안팎으로 이동 소진 실패                               |
+| 3    | 봉쇄만으로 막힌 보드는 봉쇄 해제 (규칙 추가)                                   | 1막 보스 실패의 상당수가 "봉쇄 때문에 아무 방향도 안 됨"이었음                |
+| 4    | 2-1 점수 1300 → 1100, 2-3 이동 105 → 135, 2보스 점수 2200 → 2000               | 단독 클리어율 0~25%. 유물 없이도 가끔은 가능하게                              |
+| 5    | 3-1을 "256 / 200이동"에서 "128 / 125이동 + 방해 강화"로                        | 256 목표는 이동 200개 이상이 필요해 길기만 하고 어렵지 않음. 난이도는 방해로  |
+| 6    | 쌍둥이 씨앗 +30% → +20%(고급), 프리즘 주기 8 → 10                              | 두 유물의 승률 차이가 +20점 이상으로 다른 유물을 압도                         |
+| 7    | 1막 보스 이동 120 → 105, 돌 확률 0.05 → 0.1                                    | 무작위 봇의 1막 통과율을 낮추려는 시도(31% → 22%). 대신 코너 봇도 조금 내려감 |
+
+**최종 결과**(`npm run sim -- --runs 500`, 시드 1000~1499):
+
+런 안에서의 스테이지별 클리어율 / 클리어 때 평균 이동
+
+| 스테이지 | 목표 / 이동             | 방해(돌·얼음·저주 확률)    | random    | greedy    | corner    |
+| -------- | ----------------------- | -------------------------- | --------- | --------- | --------- |
+| 1-1      | 점수 360 / 60           | 없음                       | 93% · 52  | 100% · 46 | 100% · 48 |
+| 1-2      | 돌 3개 / 45             | 시작 돌 2, 돌 .10          | 98% · 13  | 99% · 13  | 99% · 12  |
+| 1-3      | 64 타일 / 70            | 돌 .04, 얼음 .07           | 86% · 50  | 98% · 43  | 100% · 44 |
+| 1-보스   | 128 타일 / 105, 봉쇄자  | 돌 .10, 얼음 .06           | 28% · 83  | 73% · 82  | 91% · 88  |
+| 2-1      | 점수 1100 / 115         | 돌 .05, 얼음 .05, 저주 .06 | 40% · 99  | 89% · 96  | 90% · 98  |
+| 2-2      | 돌 7개 / 90             | 시작 돌 2, 돌 .12 …        | 95% · 42  | 97% · 46  | 99% · 45  |
+| 2-3      | 128 타일 / 135          | 돌 .06, 얼음 .06, 저주 .07 | 50% · 86  | 79% · 89  | 79% · 100 |
+| 2-보스   | 점수 2000 / 170, 부식자 | 돌 .05, 얼음 .05, 저주 .06 | 67% · 145 | 71% · 146 | 77% · 140 |
+| 3-1      | 128 타일 / 125          | 돌 .10, 얼음 .10, 저주 .10 | 14% · 89  | 65% · 85  | 68% · 98  |
+| 3-2      | 돌 12개 / 110           | 시작 돌 3, 돌 .15 …        | (n=2)     | 94% · 62  | 98% · 60  |
+| 3-3      | 점수 3000 / 200         | 돌 .07, 얼음 .07, 저주 .08 | (n=1)     | 58% · 142 | 93% · 150 |
+| 3-보스   | 256 타일 / 220, 혼돈    | 돌 .06, 얼음 .06, 저주 .07 | (도달 0)  | 64% · 105 | 58% · 159 |
+
+| 봇     | 승리 | 1막 통과 | 3막 보스 도달 | 3막 보스 클리어(도달한 런 중) |
+| ------ | ---- | -------- | ------------- | ----------------------------- |
+| random | 0%   | 22%      | 0%            | -                             |
+| greedy | 8%   | 71%      | 12%           | 64%                           |
+| corner | 17%  | 89%      | 30%           | 58%                           |
+
+유물 효과(코너 봇, 처음 제시된 순간 고른 런 vs 다른 것을 고른 런의 승률 차이, 표본 각 90~300런):
+프리즘 코어 +18.2, 모서리 닻 +7.7, 쌍둥이 씨앗 +5.3, 공명 증폭기 +4.8, 도약 렌즈 +3.2, 잔해 연료 +0.9, 분해 펄스 −0.4, 여분 태엽 −0.5, 연쇄 회로 −1.4, 역상 필터 −5.2, 역행 코일 −5.3, 점화 플러그 −6.1, 축전 코일 −7.1, 지연 장막 −8.1, 균열 송곳 −9.4, 정지 핀 −11.0 (점).
+
+**정직한 해석:**
+
+- **목표를 다 맞추지는 못했습니다.** 코너 봇의 1막 통과율은 89%로 "거의 항상"(95% 이상)에 못 미치고, 무작위 봇의 1막 통과율 22%는 "거의 못 넘는다"고 하기엔 높습니다. 두 숫자는 서로 당깁니다: 1막 보스를 어렵게 하면 둘 다 떨어집니다. 무작위 봇은 주로 "막힘"으로, 코너 봇은 주로 "이동 소진"으로 실패하므로, 둘을 가르려면 이동 제한보다 보드 압박(방해)을 조절하는 쪽이 맞아 보이지만 이번 단계에서는 거기까지 가지 못했습니다.
+- **3막 보스는 "어렵지만 가능"** 에 가깝습니다: 코너 봇 런의 30%가 도달하고 그중 58%가 이깁니다(전체 승률 17%).
+- **스테이지 단독 표에서 2-보스와 3-3의 클리어율이 0%** 인 것은 의도입니다. 점수 목표는 유물(점수 배율, 4 확률) 없이는 닿지 않게 잡혀 있어, 런이 쌓은 빌드가 의미를 갖습니다. 반대로 말하면 **유물을 잘못 고르면 2막 보스에서 막히는 구조**이고, 이것이 재미인지 벽인지는 사람이 해 봐야 압니다.
+- **유물 표의 차이는 대부분 통계적 잡음 범위**입니다(표본 100~300런, 승률 20% 안팎이면 표준오차가 ±5점가량). 확실히 큰 것은 프리즘 코어(+18)뿐이고, 정지 핀·축전 코일이 음수인 것은 **봇이 이 유물들을 쓰지 않기 때문**입니다(봇은 정지 핀을 쓰지 않고, 사용 유물을 막혔을 때만 씁니다). 즉 이 표는 "유물의 가치"가 아니라 "이 봇에게의 가치"입니다. 균열 송곳·점화 플러그가 음수인 이유(무작위 칸에 놓인 16이 구석 정렬을 망침 등)는 사람 플레이로 확인이 필요합니다.
+- 봇의 성적은 **절대값이 아니라 비교용**입니다. 사람은 봇보다 잘하는 부분(계획)과 못하는 부분(실수, 피로)이 다릅니다.
+
+#### 연습 과제
+
+1. 코너 봇이 정지 핀을 쓰게 해 보세요(예: 가장 큰 타일이 구석에 있고 얼어 있지 않으면 고정). 정지 핀과 역상 필터의 승률 차이가 어떻게 바뀌나요?
+2. `--runs 2000`으로 돌려 유물 표의 숫자가 300런일 때와 얼마나 달라지는지 보세요. 표준오차를 출력하는 코드를 추가해 보면 더 좋습니다.
+3. 무작위 봇의 1막 통과율을 10% 아래로, 코너 봇은 95% 위로 만드는 1막 보스 설정을 찾아보세요. 이동 제한만 바꾸는 것과 방해 확률만 바꾸는 것 중 어느 쪽이 두 봇을 더 잘 가르나요?
+
+---
+
+## 5. 설계 결정 기록
 
 각 결정은 "무엇을 / 왜 / 대가(포기한 것)" 순서로 적습니다.
 
@@ -1105,7 +1726,7 @@ __neonRift.resume(); // 실제 시계로 복귀
 ### D4. 합체 판단은 `tile.ts`의 작은 함수들(`canMerge`, `mergedValue`, `mergeScore`)
 
 - **왜**: 이동 알고리즘(`slide`)과 "무엇이 합쳐지는가"를 분리했습니다. 와일드 타일, 저주(결과 절반), 구석의 왕(점수 2배) 같은 규칙은 이 함수들만 바꾸거나 감싸면 됩니다.
-- **열린 문제**: 얼음(제자리 고정)은 줄을 "벽"으로 나누는 처리가 `slide` 안에 필요합니다. 고정된 타일에 다른 타일이 합쳐질 수 있는지는 게임 디자인 결정이라 3단계에서 정합니다.
+- **결과(3a단계)**: 얼음은 `slide` 안에서 줄을 나누는 "고정점"으로 처리했고, 고정된 타일에 같은 수가 밀려 들어오면 합체됩니다(D23).
 
 ### D5. RNG 상태를 게임 상태 안에 넣음
 
@@ -1158,7 +1779,7 @@ __neonRift.resume(); // 실제 시계로 복귀
 ### D15. 타일 그리기는 종류별 등록표 + 상태 오버레이 목록
 
 - **왜**: 3단계의 돌/와일드 타일, 얼음/저주 표시를 렌더러 수정 없이 함수 등록으로 추가하기 위해서입니다. `Record<TileKind, TilePainter>`라서 종류를 추가하고 painter를 빠뜨리면 컴파일 오류가 납니다.
-- **열린 문제**: `merge` 이벤트에는 결과 타일의 `kind`가 없어 뷰 모델이 `'number'`로 가정합니다. 3단계에서 와일드 합체 등이 생기면 이벤트에 `kind`를 추가해야 합니다. 상태(얼음·저주)가 바뀌는 이벤트도 3단계에서 정의합니다.
+- **결과(3a단계)**: `merge` 이벤트에 `kind`와 `cursed`를 넣었고, 상태가 바뀌는 `statusChange` 이벤트를 정의했습니다. 돌·프리즘 그림과 얼음·저주 오버레이를 이 등록표에 추가했을 뿐 렌더러 본체는 고치지 않았습니다.
 
 ### D16. 스와이프는 화면 전체에서, 임계값을 넘는 순간 발동
 
@@ -1190,6 +1811,87 @@ __neonRift.resume(); // 실제 시계로 복귀
 - **왜**: 자동 브라우저 검사를 결정적으로 만들고(고정 시드 + 정확한 기대 보드 + 멈춘 시계), 개발 중 버그 재현을 쉽게 하기 위해서입니다. 플래그가 없으면 `window`에 아무것도 붙지 않습니다.
 - **대가**: 디버그 API(`state`, `grid`, `move`, `advance`, `settle` …)도 공개 계약이 되므로 바꿀 때 검사 스크립트를 함께 고쳐야 합니다. `?seed=`는 첫 판에만 적용되고 "새 게임"은 무작위 시드를 씁니다.
 
+### D22. 한 턴의 결과를 단계(phase)로 나누고, 경계는 코어가 정한다
+
+- **왜**: 돌 파괴, 연쇄 합체, 보스, 방해 생성처럼 "앞의 일이 원인인 일"이 한 턴 안에 생겼습니다. 인과를 아는 곳은 코어뿐이라 렌더러가 순서를 추측하게 두면 안 됩니다. `TurnResult.phases`(단계 목록)와 `events`(이어 붙인 목록)를 함께 주어, 단계를 모르는 쪽(HUD 점수 합산 등)은 예전처럼 `events`만 봐도 됩니다.
+- **대가**: 렌더러가 단계마다 시작 시각을 계산해야 하고, 한 타일이 한 턴에 여러 번 움직일 수 있어 트윈을 "트랙"으로 바꿨습니다. 단계 종류는 6개로 고정했습니다. 새 규칙이 기존 단계에 맞지 않으면 종류를 늘려야 합니다.
+
+### D23. 얼음 타일에도 합체할 수 있다 (얼음이 깨진다)
+
+- **왜**: 얼음이 순수한 벽이면 4×4에서 너무 답답하고, 플레이어가 할 수 있는 일이 "기다리기"뿐입니다. 같은 수를 밀어 넣어 얼음을 깨는 선택지가 있으면 얼음은 퍼즐이 됩니다. 구현도 "얼음 타일을 구간의 첫 자리에 미리 놓기"로 끝나 원래 합체 규칙을 그대로 씁니다.
+- **규칙**: 얼어 있는 타일은 움직이지 않고(다른 타일로 밀려 들어가지도 않음), 뒤에서 온 같은 수만 받아 합칩니다. 결과는 새 타일이라 얼어 있지 않습니다. 얼음 남은 턴은 "그 턴의 미끄러짐 때 이미 얼어 있던 타일"만 턴 끝에 1씩 줄어듭니다. 그래서 `iceTurns: 3`은 정확히 "다음 3번의 이동 동안 고정"입니다.
+- **대가**: 얼음 위에 합체하면 그 칸에 결과가 생기므로 구석 전략을 쓰는 플레이어에게는 얼음이 오히려 기회가 될 때가 있습니다. 난이도는 얼음 빈도로 조절합니다.
+
+### D24. 봉쇄된 줄은 벽이다: 드나들기·합체 불가, 새 타일도 안 나옴. 봉쇄만으로 막히면 즉시 풀린다
+
+- **왜**: "봉쇄된 줄의 타일은 움직이지 않는다"를 가장 단순하게 지키는 방법이 벽입니다. 빈 봉쇄 칸에 타일이 들어갈 수 있으면 갇힌 타일이 생겨 오히려 헷갈립니다. 봉쇄 때문에만 움직일 수 없는 보드는 턴이 흐르지 않아 봉쇄가 영원히 안 풀리므로, 이런 판은 실패가 아니라 봉쇄 해제로 처리합니다.
+- **대가**: 봉쇄 해제가 "행동 직후 판정"에서 일어나므로 해제 이벤트(`lineUnlock`)가 `end` 단계 끝(또는 사용 유물 직후)에 붙습니다. 화면은 이 이벤트를 따로 알아볼 필요가 없습니다.
+
+### D25. 스테이지마다 보드를 새로 시작한다 (유물과 누적 점수만 이어짐)
+
+- **왜**: 보드가 이어지면 1막에서 만든 큰 타일이 2막의 "128 만들기"를 공짜로 채우거나, 막힌 보드가 다음 스테이지를 시작부터 망칩니다. 목표를 "이 이동 수 안에 이것"으로 설계하려면 출발점이 일정해야 합니다. 이어지는 성장은 유물(빌드)이 맡습니다. 시뮬레이터 표의 "스테이지 단독" 숫자가 의미를 갖는 것도 이 덕분입니다.
+- **대가**: "한 판을 길게 키워 가는" 2048 본래의 맛은 무한 모드가 맡습니다. 런 점수는 스테이지 점수의 합(`bankedScore + board.score`)입니다.
+
+### D26. 저주: 결과 절반(최소 2), 한 번 쓰이면 사라짐, 둘 다 저주여도 한 번만 절반
+
+- **왜**: 절반이면 "합쳤는데 합치기 전과 같은 값"이 되어 의미가 직관적입니다(8+8 → 8). 결과 타일은 새 타일이라 저주가 자동으로 사라집니다. 점수도 절반 값 기준이라 점수 목표에서도 손해가 보입니다.
+- **대가**: 저주는 "타일 하나를 버리는" 효과와 비슷해서, 보드가 꽉 찬 상황에서는 오히려 도움이 될 때가 있습니다. 이건 기능으로 봅니다.
+
+### D27. 돌은 합체 결과 칸의 상하좌우 이웃만 본다, 한 턴에 같은 돌은 한 번만
+
+- **왜**: "합체가 일어난 곳"을 결과 칸 하나로 정의하면 판정이 명확하고 화면으로 설명하기 쉽습니다. 대각선은 유물(균열 송곳)의 몫으로 남겨 두어 유물이 바꿀 "공통 숫자"를 만들었습니다.
+- **대가**: 미끄러지는 동안 지나간 칸은 세지 않습니다. 플레이어가 "지나가면서 부서질 것"이라고 기대할 수 있어, 3b단계에서 돌의 규칙 안내가 필요합니다.
+
+### D28. 유물 훅은 데이터를 돌려주고, 효과는 엔진이 적용한다. 유물 상태는 `{ id, charges, counter }` 하나로
+
+- **왜**: 훅이 상태를 직접 바꾸면 순서·불변성·저장이 모두 유물 작성자의 책임이 됩니다. 효과 목록을 돌려받아 엔진이 적용하면 모든 발동에 `trigger` 이벤트가 자동으로 붙고, 유물은 테스트하기 쉬운 순수 함수가 됩니다. 공통 상태 형식은 저장 형식을 유물 종류와 무관하게 만듭니다.
+- **대가**: 효과 종류(`score`, `bonusMoves`, `charge`, `placeTile`, `spawnPrism`)가 정해져 있어, 새로운 종류의 효과는 엔진에 한 번 추가해야 합니다. 카운터가 하나뿐이라 두 가지를 세야 하는 유물은 설계를 바꿔야 합니다(지금은 없음).
+
+### D29. 유물 제시는 키워드로 거른다 ("죽은 선택지" 금지). "정화"는 "역상 필터"로 재설계
+
+- **왜**: 남은 스테이지에 저주·얼음이 없는데 그걸 다루는 유물이 나오면 3택 1이 2택 1이 됩니다. 판단은 이름이 아닌 키워드(남은 스테이지의 방해·보스·목표 종류 + 가진 유물이 주는 키워드)로 해서, 유물끼리 서로 몰라도 됩니다. 순수 무효화 유물은 손맛이 없어서, 같은 키워드를 기회로 바꾸는 유물로 고쳤습니다.
+- **대가**: 3개를 채울 만큼 쓸 만한 유물이 없으면 제시가 3개보다 적을 수 있습니다(0개도 가능). 그래서 `chooseRelic(run, null)`로 "고르지 않고 진행"을 허용합니다.
+
+### D30. 사용 유물의 충전: 얻을 때 0, 스테이지가 시작할 때마다 회복. 무한 모드에서는 유물을 고르는 순간이 "스테이지 시작"
+
+- **왜**: "스테이지마다 1회"를 한 규칙(`rechargePerStage`)으로 표현하고, 얻자마자 다음 스테이지 시작에서 채워지므로 사실상 바로 쓸 수 있습니다. 무한 모드에는 스테이지가 없어서, 유물 선택이 `onStageStart` 훅(충전, 점화 플러그, 도약 렌즈 초기화)을 부르는 시점이 됩니다. 덕분에 이 유물들이 무한 모드에서도 죽은 선택지가 아닙니다.
+- **대가**: 무한 모드에서 점화 플러그는 "유물을 고를 때마다 16 하나"가 되어 런 모드와 체감이 다릅니다.
+
+### D31. 되돌리기: 한 단계, 직전 "행동"(이동 또는 유물 사용) 전체를 RNG까지 복원, 되돌리기 자신의 충전만 빼고
+
+- **왜**: 보드 안에 RNG 상태가 있으므로 스냅샷을 되돌리면 난수도 돌아갑니다. 같은 방향으로 다시 밀면 같은 타일이 나오므로 "다시 굴려서 좋은 운 고르기"가 안 됩니다. 폭탄 사용도 되돌릴 수 있고, 그때 폭탄 충전도 돌려받습니다. 스냅샷은 되돌리기 칸을 뺀 상태(`RunSnapshot`)라 중첩되지 않습니다.
+- **대가**: 저장 데이터에 직전 상태가 하나 더 들어가 크기가 약 두 배가 됩니다(4×4 보드라 수 KB 수준). 스테이지가 바뀌면 스냅샷은 버립니다.
+
+### D32. 막힌 보드는 구조 수단(폭탄 충전, 쓸 수 있는 되돌리기)이 남아 있으면 실패로 보지 않는다
+
+- **왜**: 폭탄을 들고 있는데 "움직일 수 없음, 실패"가 뜨면 억울합니다. 실패 판정을 미루고 상태를 `playing`으로 두면, 화면은 `runDirections(run)`이 비어 있는 것을 보고 "유물을 쓰세요"를 안내할 수 있습니다. 모든 행동 뒤에 같은 판정이 다시 돌므로, 구조 수단을 다 쓰고도 막혀 있으면 그때 실패합니다.
+- **대가**: 화면이 "이동 불가지만 아직 진행 중" 상태를 처리해야 합니다(3b단계).
+
+### D33. 연쇄 반응은 "방금 생긴 타일이 낀 합체"만, 최대 2번 더
+
+- **왜**: "합체가 없을 때까지 같은 방향으로 계속 민다"로 하면 한 번의 스와이프로 보드가 정리되어 2048의 판단이 사라집니다. 직전 패스에서 생긴 타일만 다시 합칠 수 있게 하면 연쇄가 "줄줄이 이어지는" 모양이 되고 화면으로도 따라가기 쉽습니다. 합체가 없는 정리 이동은 연쇄로 치지 않습니다.
+- **대가**: 깊이 제한(2)은 밸런스 수치라 `RELIC_TUNING.chainDepth`에 있습니다. 한 번 더 고르는 같은 유물이 없으므로 깊이가 쌓이지는 않습니다.
+
+### D34. 보스는 카운트다운이 0이 되는 이동의 `boss` 단계에서 발동한다. 봉쇄는 다음 이동부터 센다
+
+- **왜**: "5턴마다"를 "다섯 번째 이동이 끝날 때"로 정하면 HUD의 숫자(`turnsUntil`)와 실제 발동이 정확히 맞습니다. 봉쇄가 걸린 바로 그 턴에 봉쇄 턴이 줄면 "2턴 봉쇄"가 실제로는 1턴이 되므로, 생긴 턴에는 세지 않습니다.
+- **대가**: 보스 단계가 생성 단계보다 앞이라, 혼돈이 섞은 직후 새 타일이 하나 더 나옵니다. 섞인 판을 보고 다음 수를 고를 수 있도록 하는 쪽을 택했습니다.
+
+### D35. 밸런스 봇은 미래를 엿보지 않고, 유물 효과는 "처음 제시된 순간"으로 비교한다
+
+- **왜**: `runMove`를 방향마다 시험해 보면 다음 생성 위치까지 알게 되어 봇이 비현실적으로 강해집니다. 그래서 봇은 `slide`(생성 전)만 봅니다. 유물 효과는 "가진 런 vs 안 가진 런"으로 비교하면 오래 산 런이 제시를 더 많이 받는 생존 편향이 생깁니다. 처음 제시된 순간의 무작위 선택으로 나누면 작은 무작위 실험이 됩니다.
+- **대가**: 표본이 유물당 100~300런이라 몇 점 차이는 잡음입니다. 봇이 쓰지 않는 유물(정지 핀)은 낮게 나옵니다.
+
+### D36. 시뮬레이터는 `tsx`로 실행하고, Node 타입은 도구 파일에만
+
+- **왜**: 시뮬레이터는 브라우저가 필요 없는 TS 스크립트라 `tsx`(개발 의존성)로 바로 실행합니다. `@types/node`는 `tools/simulate.ts` 맨 위의 `/// <reference types="node" />`로만 불러와서, 앱 코드(`src/`)에서는 여전히 `process` 같은 Node 전역을 쓸 수 없습니다. ESLint도 `tools/`에만 Node 전역을 켰습니다.
+- **대가**: 개발 의존성이 두 개 늘었습니다. 런타임 의존성은 여전히 0입니다.
+
+### D37. 고유 용어를 쓴다: 와일드 → 프리즘, 유물 이름은 이 게임의 세계관(회로·코일·필터)으로
+
+- **왜**: 다른 게임의 용어·이름을 빌리지 않는다는 원칙(외부 자료 조사 노트) 때문입니다. "어떤 수와도 합쳐지는 타일"은 빛을 나누는 프리즘으로, 유물 이름은 네온·회로 분위기에 맞게 지었습니다. 코드 식별자(`prism`, `prismCore`)도 같은 이름을 씁니다.
+- **대가**: 계획서의 가칭(와일드 타일, 구석의 왕, 여분의 시간…)과 이름이 다르므로, 이 문서의 4.5장 표가 기준입니다.
+
 ---
 
 ## 부록: 자주 쓰는 명령어
@@ -1204,3 +1906,4 @@ __neonRift.resume(); // 실제 시계로 복귀
 | `npm run format`     | Prettier로 전체 코드 정리                                                                         |
 | `npm run build`      | 타입 검사 + 배포용 빌드 (`dist/`)                                                                 |
 | `npm run preview`    | 빌드 결과를 로컬에서 미리 보기 (`http://localhost:4173/2048-project/`, 디버그는 `?debug&seed=42`) |
+| `npm run sim`        | 밸런스 봇 시뮬레이터 (기본 300런/봇, `npm run sim -- --runs 1000`으로 늘리기)                     |

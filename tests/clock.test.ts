@@ -99,7 +99,7 @@ describe('AnimationLoop with an injected clock', () => {
       return busy;
     });
 
-    view.apply(move(state, 'left').events, clock.now());
+    view.apply(move(state, 'left').phases, clock.now());
     loop.invalidate();
 
     // Half way through the slide: both sources still drawn (the spawn has not appeared).

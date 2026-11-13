@@ -24,10 +24,10 @@ class ViewBoard implements BoardDisplay {
   constructor(private readonly clock: PausableClock) {}
   startGame(result: TurnResult): void {
     this.view.clear(result.state.size);
-    this.view.apply(result.events, this.clock.now());
+    this.view.apply(result.phases, this.clock.now());
   }
   playTurn(result: TurnResult): void {
-    this.view.apply(result.events, this.clock.now());
+    this.view.apply(result.phases, this.clock.now());
   }
   settle(): void {
     this.view.finish();

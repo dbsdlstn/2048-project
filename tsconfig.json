@@ -19,5 +19,5 @@
     "allowImportingTsExtensions": false,
     "useDefineForClassFields": true
   },
-  "include": ["src", "tests", "vite.config.ts", "eslint.config.js"]
+  "include": ["src", "tests", "tools", "vite.config.ts", "eslint.config.js"]
 }

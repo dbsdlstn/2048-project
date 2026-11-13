@@ -1,7 +1,11 @@
 /**
  * Tunable game numbers live here so balancing never requires touching logic.
- * Later stages add hazard frequencies, stage goals, relic odds, etc.
+ * The stage table and relic numbers were tuned with the bot simulator
+ * (`npm run sim`, see docs/STUDY.md "시뮬레이션으로 밸런스 잡기").
  */
+import type { BossId } from './bosses';
+import type { HazardParams } from './hazards';
+import type { StageSpec } from './stage';
 
 export interface CoreRules {
   /** Board is `boardSize` x `boardSize`. */
@@ -17,3 +21,253 @@ export const DEFAULT_RULES: CoreRules = {
   startTiles: 2,
   fourChance: 0.1,
 };
+
+export const BOSS_TUNING: Readonly<
+  Record<
+    BossId,
+    {
+      readonly period: number;
+      readonly lockTurns: number;
+      readonly minValue: number;
+      readonly stones: number;
+    }
+  >
+> = {
+  /** 봉쇄자: seals one random row or column. */
+  warden: { period: 5, lockTurns: 2, minValue: 0, stones: 0 },
+  /** 부식자: halves the largest tile (only if it is at least `minValue`). */
+  corroder: { period: 4, lockTurns: 0, minValue: 4, stones: 0 },
+  /** 혼돈: shuffles the board and drops `stones` stones. */
+  chaos: { period: 6, lockTurns: 0, minValue: 0, stones: 1 },
+};
+
+/** Hazard presets used by the stage table (spread and overridden per stage). */
+const H = {
+  none: {
+    startStones: 0,
+    stoneChance: 0,
+    maxStones: 0,
+    iceChance: 0,
+    iceTurns: 0,
+    curseChance: 0,
+  },
+} satisfies Record<string, HazardParams>;
+
+/**
+ * The run: 3 acts × (3 normal stages + 1 boss). Act 1 doubles as the tutorial:
+ * stage 1 has no hazards, stage 2 introduces stone, stage 3 ice; curse arrives
+ * in act 2. The board resets at every stage; relics carry over.
+ */
+export const STAGE_TABLE: readonly StageSpec[] = [
+  // Act 1
+  {
+    act: 1,
+    goal: { type: 'score', target: 360 },
+    moveLimit: 60,
+    hazards: H.none,
+    boss: null,
+    introduces: null,
+  },
+  {
+    act: 1,
+    goal: { type: 'stones', count: 3 },
+    moveLimit: 45,
+    hazards: { ...H.none, startStones: 2, stoneChance: 0.1, maxStones: 3 },
+    boss: null,
+    introduces: 'stone',
+  },
+  {
+    act: 1,
+    goal: { type: 'tile', value: 64 },
+    moveLimit: 70,
+    hazards: { ...H.none, stoneChance: 0.04, maxStones: 2, iceChance: 0.07, iceTurns: 3 },
+    boss: null,
+    introduces: 'ice',
+  },
+  {
+    act: 1,
+    goal: { type: 'tile', value: 128 },
+    moveLimit: 105,
+    hazards: { ...H.none, stoneChance: 0.1, maxStones: 3, iceChance: 0.06, iceTurns: 3 },
+    boss: 'warden',
+    introduces: null,
+  },
+  // Act 2
+  {
+    act: 2,
+    goal: { type: 'score', target: 1100 },
+    moveLimit: 115,
+    hazards: {
+      ...H.none,
+      stoneChance: 0.05,
+      maxStones: 2,
+      iceChance: 0.05,
+      iceTurns: 3,
+      curseChance: 0.06,
+    },
+    boss: null,
+    introduces: 'curse',
+  },
+  {
+    act: 2,
+    goal: { type: 'stones', count: 7 },
+    moveLimit: 90,
+    hazards: {
+      ...H.none,
+      startStones: 2,
+      stoneChance: 0.12,
+      maxStones: 4,
+      iceChance: 0.05,
+      iceTurns: 3,
+      curseChance: 0.05,
+    },
+    boss: null,
+    introduces: null,
+  },
+  {
+    act: 2,
+    goal: { type: 'tile', value: 128 },
+    moveLimit: 135,
+    hazards: {
+      ...H.none,
+      stoneChance: 0.06,
+      maxStones: 3,
+      iceChance: 0.06,
+      iceTurns: 3,
+      curseChance: 0.07,
+    },
+    boss: null,
+    introduces: null,
+  },
+  {
+    act: 2,
+    goal: { type: 'score', target: 2000 },
+    moveLimit: 170,
+    hazards: {
+      ...H.none,
+      stoneChance: 0.05,
+      maxStones: 2,
+      iceChance: 0.05,
+      iceTurns: 3,
+      curseChance: 0.06,
+    },
+    boss: 'corroder',
+    introduces: null,
+  },
+  // Act 3
+  {
+    act: 3,
+    goal: { type: 'tile', value: 128 },
+    moveLimit: 125,
+    hazards: {
+      ...H.none,
+      stoneChance: 0.1,
+      maxStones: 4,
+      iceChance: 0.1,
+      iceTurns: 3,
+      curseChance: 0.1,
+    },
+    boss: null,
+    introduces: null,
+  },
+  {
+    act: 3,
+    goal: { type: 'stones', count: 12 },
+    moveLimit: 110,
+    hazards: {
+      ...H.none,
+      startStones: 3,
+      stoneChance: 0.15,
+      maxStones: 5,
+      iceChance: 0.07,
+      iceTurns: 3,
+      curseChance: 0.07,
+    },
+    boss: null,
+    introduces: null,
+  },
+  {
+    act: 3,
+    goal: { type: 'score', target: 3000 },
+    moveLimit: 200,
+    hazards: {
+      ...H.none,
+      stoneChance: 0.07,
+      maxStones: 3,
+      iceChance: 0.07,
+      iceTurns: 4,
+      curseChance: 0.08,
+    },
+    boss: null,
+    introduces: null,
+  },
+  {
+    act: 3,
+    goal: { type: 'tile', value: 256 },
+    moveLimit: 220,
+    hazards: {
+      ...H.none,
+      stoneChance: 0.06,
+      maxStones: 3,
+      iceChance: 0.06,
+      iceTurns: 3,
+      curseChance: 0.07,
+    },
+    boss: 'chaos',
+    introduces: null,
+  },
+];
+
+/** Endless mode: hazard chances grow linearly with moves played, up to a cap. */
+export const ENDLESS_TUNING = {
+  /** The first relic offer comes when the largest tile first reaches this. */
+  firstOfferTile: 64,
+  /** Hazards start after this many moves. */
+  graceTurns: 30,
+  stoneChancePerTurn: 0.0004,
+  stoneChanceMax: 0.12,
+  maxStones: 4,
+  iceChancePerTurn: 0.0003,
+  iceChanceMax: 0.08,
+  iceTurns: 3,
+  curseChancePerTurn: 0.0003,
+  curseChanceMax: 0.08,
+} as const;
+
+/** Numbers that relic descriptions and hooks share. */
+export const RELIC_TUNING = {
+  /** 연쇄 회로: extra merge passes per move. */
+  chainDepth: 2,
+  /** 공명 증폭기: bonus per extra merge in one move, as a fraction of that move's merge score. */
+  comboBonus: 0.5,
+  /** 균열 송곳: merges of at least this value also break diagonal stones. */
+  pickaxeMinValue: 8,
+  /** 프리즘 코어: a prism replaces the regular spawn every this many moves. */
+  prismEvery: 10,
+  /** 모서리 닻: score multiplier for merges on a corner cell. */
+  cornerFactor: 2,
+  /** 여분 태엽: extra moves per stage. */
+  extraMoves: 6,
+  /** 역상 필터: score multiplier for merges involving a frozen or cursed tile. */
+  statusFactor: 3,
+  /** 잔해 연료: moves gained per stone broken. */
+  movesPerStone: 1,
+  /** 쌍둥이 씨앗: added chance that a spawn is a 4. */
+  fourChanceBonus: 0.2,
+  /** 점화 플러그: value of the tile placed at stage start. */
+  igniteValue: 16,
+  /** 지연 장막: added moves between boss triggers. */
+  bossDelay: 2,
+  /** 도약 렌즈: the first this-many merges of a stage double their result. */
+  lensMerges: 2,
+  /** 축전 코일: merges needed per charge. */
+  mergesPerCharge: 12,
+  /** 정지 핀: moves a pinned tile stays frozen. */
+  pinTurns: 3,
+} as const;
+
+/** Offer weight per rarity (3 relics are drawn without replacement). */
+export const RARITY_WEIGHT = { common: 3, uncommon: 2, rare: 1 } as const;
+
+/** Relics offered after each cleared stage (or endless milestone). */
+export const OFFER_SIZE = 3;

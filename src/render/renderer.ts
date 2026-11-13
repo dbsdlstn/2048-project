@@ -86,7 +86,7 @@ export class BoardRenderer {
   /** Animates one turn. Safe to call mid-animation: the previous turn is fast-forwarded. */
   playTurn(result: TurnResult): void {
     try {
-      this.view.apply(result.events, this.clock.now());
+      this.view.apply(result.phases, this.clock.now());
     } catch (error) {
       // The view lost track of a tile; never let a display bug break the game.
       console.error(error);
