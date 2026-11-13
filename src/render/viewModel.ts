@@ -7,7 +7,15 @@
  * milliseconds. It is pure (time is passed in) so it can be tested in Node.
  */
 import { NO_STATUS, listTiles } from '../core';
-import type { GameState, TileId, TileKind, TileStatus, TurnEvent, TurnPhase } from '../core';
+import type {
+  GameState,
+  TileId,
+  TileKind,
+  TileStatus,
+  TurnEvent,
+  TurnPhase,
+  TurnPhaseKind,
+} from '../core';
 import { easeOutBack, easeOutCubic, endTime, sample, still, tween } from './tween';
 import type { Tween } from './tween';
 
@@ -133,6 +141,19 @@ function newSprite(
   };
 }
 
+/**
+ * When one event starts playing. `apply` returns one cue per event so effects
+ * and sound (stage 5) can fire exactly when the matching animation does.
+ */
+export interface EventCue {
+  readonly event: TurnEvent;
+  readonly phase: TurnPhaseKind;
+  /** Index of the phase within its step. */
+  readonly phaseIndex: number;
+  /** Absolute time (clock timeline, ms) at which the event's animation starts. */
+  readonly at: number;
+}
+
 export class BoardView {
   private readonly sprites = new Map<TileId, TileSprite>();
   private gridSize: number;
@@ -175,12 +196,15 @@ export class BoardView {
    * fast-forwarded first, so the view can never drift from the core state no
    * matter how quickly turns arrive.
    */
-  apply(phases: readonly TurnPhase[], now: number): void {
+  apply(phases: readonly TurnPhase[], now: number): EventCue[] {
     this.finish();
+    const cues: EventCue[] = [];
     let cursor = now;
     let first = true;
-    for (const phase of phases) {
+    for (const [phaseIndex, phase] of phases.entries()) {
       const start = first ? cursor : cursor + this.timings.spawnDelay;
+      for (const event of phase.events)
+        cues.push({ event, phase: phase.kind, phaseIndex, at: start });
       const duration = this.schedulePhase(phase.events, start);
       // Phases with nothing to show (score, triggers…) take no time.
       if (duration <= 0) continue;
@@ -188,6 +212,23 @@ export class BoardView {
       first = false;
     }
     this.busyUntil = this.computeBusyUntil();
+    return cues;
+  }
+
+  /** Time at which everything scheduled so far has finished. */
+  get endTime(): number {
+    return this.busyUntil;
+  }
+
+  /** Where a tile is drawn at `now` (fractional row / column), or null if not visible. */
+  tilePosition(id: TileId, now: number): { row: number; col: number; scale: number } | null {
+    const s = this.sprites.get(id);
+    if (!s || now < s.appearAt || now >= s.removeAt) return null;
+    return {
+      row: sampleTrack(s.row, now),
+      col: sampleTrack(s.col, now),
+      scale: sampleTrack(s.scale, now),
+    };
   }
 
   /** Schedules one phase's events from `start`; returns how long its board motion lasts. */

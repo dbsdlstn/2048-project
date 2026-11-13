@@ -58,3 +58,11 @@ export class SwipeTracker {
     if (pointerId === undefined || this.active?.id === pointerId) this.active = null;
   }
 }
+
+/**
+ * A pointer gesture counts as a tap when it ends close to where it began
+ * (well under the swipe threshold) and never fired a swipe.
+ */
+export function isTap(dx: number, dy: number, threshold: number): boolean {
+  return Math.hypot(dx, dy) < threshold / 2;
+}

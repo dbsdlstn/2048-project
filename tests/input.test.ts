@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Direction } from '../src/core';
-import { SwipeTracker, directionForKey, resolveSwipe } from '../src/input';
+import { SwipeTracker, directionForKey, isTap, resolveSwipe } from '../src/input';
 
 describe('resolveSwipe', () => {
   it.each<[number, number, Direction]>([
@@ -84,5 +84,14 @@ describe('directionForKey', () => {
     expect(directionForKey('Space')).toBeNull();
     expect(directionForKey('KeyQ')).toBeNull();
     expect(directionForKey('toString')).toBeNull();
+  });
+});
+
+describe('isTap', () => {
+  it('counts only short, still presses as taps', () => {
+    expect(isTap(0, 0, 24)).toBe(true);
+    expect(isTap(5, 6, 24)).toBe(true);
+    expect(isTap(12, 0, 24)).toBe(false);
+    expect(isTap(30, 0, 24)).toBe(false);
   });
 });

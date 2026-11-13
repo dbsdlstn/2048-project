@@ -48,3 +48,20 @@ export function cellCenter(
   const o = cellOrigin(layout, row, col);
   return { x: o.x + layout.cell / 2, y: o.y + layout.cell / 2 };
 }
+
+/**
+ * The cell under a point in board space (CSS px from the board's top-left), or
+ * null outside the grid. Half of each gap counts towards the neighbouring
+ * cells, so a tap between two tiles still picks the nearer one.
+ */
+export function cellAtPoint(
+  layout: BoardLayout,
+  x: number,
+  y: number,
+): { row: number; col: number } | null {
+  const step = layout.cell + layout.gap;
+  const col = Math.floor((x - layout.padding + layout.gap / 2) / step);
+  const row = Math.floor((y - layout.padding + layout.gap / 2) / step);
+  if (row < 0 || col < 0 || row >= layout.gridSize || col >= layout.gridSize) return null;
+  return { row, col };
+}

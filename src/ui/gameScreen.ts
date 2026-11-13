@@ -1,83 +1,248 @@
 /**
- * Builds the game screen's DOM: HUD on top, the board canvas, a hint line.
+ * Builds the app's DOM (HUD, board canvas with its DOM overlays, full-screen
+ * sheets) and implements the controller's `UiDisplay`.
+ *
+ * What lives where: the board and everything tied to cells (tiles, sealed
+ * line, boss target, targeting outlines) is drawn on the canvas; text, buttons
+ * and anything the player reads or taps outside a cell is DOM, which gives us
+ * fonts, layout, focus and accessibility for free.
+ *
  * The template is static (no user data), so innerHTML is safe here.
  */
+import type { RelicId, RunMode } from '../core';
+import type { UiDisplay } from '../game/runController';
+import type { Hint, HudModel, ScreenModel, StageBanner } from '../game/runView';
+import { ref, replayClass } from './dom';
 import { Hud } from './hud';
-
-export interface GameScreen {
-  /** Full-screen element that receives swipes. */
-  readonly surface: HTMLElement;
-  readonly canvas: HTMLCanvasElement;
-  readonly hud: Hud;
-}
+import { menuScreen, offerScreen, pauseScreen, resultScreen } from './screens';
 
 export interface GameScreenHandlers {
-  readonly onNewGame: () => void;
+  readonly onStart: (mode: RunMode) => void;
+  readonly onChooseRelic: (id: RelicId | null) => void;
+  readonly onActivateRelic: (id: RelicId) => void;
+  readonly onCancelTargeting: () => void;
+  readonly onPause: () => void;
+  readonly onResume: () => void;
+  readonly onQuit: () => void;
+  readonly onRetry: () => void;
+  readonly onDismissHint: () => void;
 }
 
+/** Length of the stage banner animation (keep in sync with `.banner.show` in style.css). */
+const BANNER_MS = 1400;
+
 const TEMPLATE = `
-  <div class="column">
-    <header class="hud">
-      <div class="hud-row">
-        <h1 class="logo">NEON<span>RIFT</span></h1>
-        <button type="button" class="btn" data-ref="newGame">새 게임</button>
+  <div class="game" data-ref="game">
+    <header class="topbar">
+      <div class="stage-pill" data-ref="stage">1막 1</div>
+      <div class="score-box">
+        <span class="score-label">점수</span>
+        <span class="score-value" data-ref="score">0</span>
+        <span class="score-gains" data-ref="gains" aria-hidden="true"></span>
       </div>
-      <div class="hud-row scores">
-        <div class="score-box">
-          <span class="score-label">점수</span>
-          <span class="score-value" data-ref="score">0</span>
-          <span class="score-gains" data-ref="gains" aria-hidden="true"></span>
-        </div>
-        <div class="score-box">
-          <span class="score-label">최고 기록</span>
-          <span class="score-value" data-ref="best">0</span>
-        </div>
-      </div>
+      <button type="button" class="icon-btn" data-ref="pause" aria-label="일시정지">
+        <span class="pause-glyph" aria-hidden="true"></span>
+      </button>
     </header>
-    <div class="board">
-      <canvas class="board-canvas" role="img" aria-label="게임 보드"></canvas>
-      <div class="overlay" data-ref="overlay" role="dialog" aria-modal="true" aria-labelledby="game-over-title" hidden>
-        <p class="overlay-title" id="game-over-title">게임 오버</p>
-        <p class="overlay-score">점수 <strong data-ref="overlayScore">0</strong></p>
-        <p class="overlay-best" data-ref="overlayBest" hidden>새 최고 기록!</p>
-        <button type="button" class="btn btn-primary" data-ref="restart">다시 하기</button>
+    <section class="goal" data-ref="goal">
+      <div class="goal-main">
+        <div class="goal-line">
+          <span class="goal-text" data-ref="goalText"></span>
+          <span class="goal-count" data-ref="goalCount"></span>
+        </div>
+        <div class="bar"><div class="bar-fill" data-ref="goalBar"></div></div>
+      </div>
+      <div class="moves" data-ref="moves">
+        <span class="moves-label" data-ref="movesLabel">남은 이동</span>
+        <span class="moves-value" data-ref="movesValue">0</span>
+      </div>
+    </section>
+    <section class="boss" data-ref="boss" hidden>
+      <div class="boss-line">
+        <span class="boss-name" data-ref="bossName"></span>
+        <span class="boss-preview" data-ref="bossPreview"></span>
+        <span class="boss-count" aria-label="발동까지 남은 턴"><b data-ref="bossCount">0</b>턴</span>
+      </div>
+      <p class="boss-rule" data-ref="bossRule"></p>
+    </section>
+    <div class="board-area">
+      <div class="board" data-ref="board">
+        <canvas class="board-canvas" role="img" aria-label="게임 보드"></canvas>
+        <div class="banner" data-ref="banner" aria-live="polite"></div>
+        <div class="hint" data-ref="hint" role="status" hidden>
+          <p><strong data-ref="hintTitle"></strong><span data-ref="hintText"></span></p>
+          <button type="button" class="hint-close" data-ref="hintClose">확인</button>
+        </div>
       </div>
     </div>
-    <p class="hint">화면을 밀거나 방향키(WASD)로 타일을 움직여 같은 숫자를 합치세요</p>
+    <section class="actives" data-ref="actives" hidden></section>
+    <section class="tray">
+      <div class="tray-chips" data-ref="tray"></div>
+      <button type="button" class="tray-all" data-ref="trayAll" aria-label="가진 유물 전체 보기">유물</button>
+      <div class="tooltip" data-ref="tooltip" role="tooltip" hidden></div>
+      <!-- Status bars sit over the tray, never over the board the player must see and tap. -->
+      <div class="board-msg" data-ref="stuck" role="status" hidden>움직일 수 없어요 · 유물을 사용하세요</div>
+      <div class="target-bar" data-ref="targetBar" hidden>
+        <p><span data-ref="targetPrompt"></span><span class="target-error" data-ref="targetError"></span></p>
+        <button type="button" class="btn btn-small" data-ref="targetCancel">취소</button>
+      </div>
+    </section>
   </div>
+  <div class="screen" data-ref="sheet" role="dialog" aria-modal="true" hidden></div>
 `;
 
-function ref<T extends HTMLElement>(root: HTMLElement, name: string, type: new () => T): T {
-  const el = root.querySelector(`[data-ref="${name}"]`);
-  if (!(el instanceof type)) throw new Error(`gameScreen: missing element ${name}`);
-  return el;
+export interface GameScreen {
+  /** Full-screen element that receives swipes and taps. */
+  readonly surface: HTMLElement;
+  readonly canvas: HTMLCanvasElement;
+  readonly ui: GameUi;
+}
+
+export class GameUi implements UiDisplay {
+  readonly hud: Hud;
+  private readonly game: HTMLElement;
+  private readonly sheet: HTMLElement;
+  private readonly banner: HTMLElement;
+  private readonly hintBox: HTMLElement;
+  private readonly hintTitle: HTMLElement;
+  private readonly hintText: HTMLElement;
+  private readonly targetBar: HTMLElement;
+  private readonly targetPrompt: HTMLElement;
+  private readonly targetError: HTMLElement;
+  private lastHud: HudModel | null = null;
+  private screen: ScreenModel['kind'] = 'menu';
+  /** Until when (performance.now) the stage banner covers the board. */
+  private bannerUntil = 0;
+  /** Whether the last input came from a keyboard (then sheets move focus to their first button). */
+  private keyboard = false;
+
+  constructor(
+    private readonly surface: HTMLElement,
+    private readonly handlers: GameScreenHandlers,
+  ) {
+    this.game = ref(surface, 'game', HTMLElement);
+    this.sheet = ref(surface, 'sheet', HTMLElement);
+    this.banner = ref(surface, 'banner', HTMLElement);
+    this.hintBox = ref(surface, 'hint', HTMLElement);
+    this.hintTitle = ref(surface, 'hintTitle', HTMLElement);
+    this.hintText = ref(surface, 'hintText', HTMLElement);
+    this.targetBar = ref(surface, 'targetBar', HTMLElement);
+    this.targetPrompt = ref(surface, 'targetPrompt', HTMLElement);
+    this.targetError = ref(surface, 'targetError', HTMLElement);
+    this.hud = new Hud(surface, {
+      onActivateRelic: (id) => {
+        handlers.onActivateRelic(id);
+      },
+      onOpenRelics: () => {
+        handlers.onPause();
+      },
+    });
+    window.addEventListener('keydown', () => {
+      this.keyboard = true;
+    });
+    window.addEventListener('pointerdown', () => {
+      this.keyboard = false;
+    });
+    ref(surface, 'pause', HTMLButtonElement).addEventListener('click', () => {
+      handlers.onPause();
+    });
+    ref(surface, 'hintClose', HTMLButtonElement).addEventListener('click', () => {
+      handlers.onDismissHint();
+    });
+    ref(surface, 'targetCancel', HTMLButtonElement).addEventListener('click', () => {
+      handlers.onCancelTargeting();
+    });
+  }
+
+  /** Current screen kind (the surface uses it to route taps). */
+  get screenKind(): ScreenModel['kind'] {
+    return this.screen;
+  }
+
+  showScreen(screen: ScreenModel): void {
+    this.screen = screen.kind;
+    this.surface.dataset.screen = screen.kind;
+    this.game.hidden = screen.kind === 'menu';
+    const targeting = screen.kind === 'targeting';
+    this.targetBar.hidden = !targeting;
+    this.hud.setTargeting(targeting ? screen.relic : null);
+    if (targeting) {
+      this.targetPrompt.textContent = screen.prompt;
+      this.targetError.textContent = screen.error ?? '';
+    }
+    this.hud.hideTooltip();
+
+    const h = this.handlers;
+    let content: HTMLElement | null = null;
+    switch (screen.kind) {
+      case 'menu':
+        content = menuScreen(screen.records, h);
+        break;
+      case 'offer':
+        content = offerScreen(screen, h);
+        break;
+      case 'paused':
+        content = pauseScreen(this.lastHud, h);
+        break;
+      case 'result':
+        content = resultScreen(screen, h);
+        break;
+      case 'playing':
+      case 'targeting':
+        break;
+    }
+    this.sheet.replaceChildren(...(content ? [content] : []));
+    this.sheet.hidden = content === null;
+    this.sheet.className = `screen screen-${screen.kind}`;
+    // Keyboard users land on the first action (touch users get no focus ring).
+    if (this.keyboard) {
+      content?.querySelector<HTMLButtonElement>('button')?.focus({ preventScroll: true });
+    }
+  }
+
+  updateHud(hud: HudModel): void {
+    this.lastHud = hud;
+    this.hud.update(hud);
+  }
+
+  scoreGained(amount: number): void {
+    this.hud.scoreGained(amount);
+  }
+
+  showHint(hint: Hint | null): void {
+    this.hintBox.hidden = hint === null;
+    if (hint) {
+      this.hintTitle.textContent = hint.title;
+      this.hintText.textContent = hint.text;
+      // A hint that arrives with a stage waits for the stage banner to fade.
+      const wait = Math.max(0, this.bannerUntil - performance.now());
+      this.hintBox.style.animationDelay = `${Math.round(wait)}ms`;
+      replayClass(this.hintBox, 'show');
+    }
+  }
+
+  announceStage(banner: StageBanner): void {
+    this.banner.replaceChildren();
+    const title = document.createElement('strong');
+    title.textContent = banner.title;
+    const detail = document.createElement('span');
+    detail.textContent = banner.detail;
+    this.banner.append(title, detail);
+    replayClass(this.banner, 'show');
+    this.bannerUntil = performance.now() + BANNER_MS;
+  }
+
+  pulseRelic(id: RelicId): void {
+    this.hud.pulseRelic(id);
+  }
 }
 
 export function createGameScreen(root: HTMLElement, handlers: GameScreenHandlers): GameScreen {
   const surface = document.createElement('main');
-  surface.className = 'game';
+  surface.className = 'app';
   surface.innerHTML = TEMPLATE;
   root.replaceChildren(surface);
-
   const canvas = surface.querySelector('canvas');
   if (!canvas) throw new Error('gameScreen: missing canvas');
-
-  const restartButton = ref(surface, 'restart', HTMLButtonElement);
-  const hud = new Hud({
-    score: ref(surface, 'score', HTMLElement),
-    best: ref(surface, 'best', HTMLElement),
-    gainLayer: ref(surface, 'gains', HTMLElement),
-    overlay: ref(surface, 'overlay', HTMLElement),
-    overlayScore: ref(surface, 'overlayScore', HTMLElement),
-    overlayBest: ref(surface, 'overlayBest', HTMLElement),
-    restartButton,
-  });
-
-  const newGame = (): void => {
-    handlers.onNewGame();
-  };
-  ref(surface, 'newGame', HTMLButtonElement).addEventListener('click', newGame);
-  restartButton.addEventListener('click', newGame);
-
-  return { surface, canvas, hud };
+  return { surface, canvas, ui: new GameUi(surface, handlers) };
 }

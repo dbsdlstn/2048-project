@@ -328,6 +328,14 @@ export function useActive(run: RunState, relicId: RelicId, target?: Position): R
   return step(judged.run, [{ kind: 'resolve', events: [...events, ...judged.events] }], false);
 }
 
+/**
+ * A step that rebuilds `run`'s board in an empty view, changing nothing
+ * (resuming a saved run, or a display that lost track of the board).
+ */
+export function restoreStep(run: RunState): RunStep {
+  return step(run, [{ kind: 'spawn', events: rebuildEvents(run.board) }], true);
+}
+
 // ---------------------------------------------------------------- internals
 
 function unchanged(run: RunState): RunStep {

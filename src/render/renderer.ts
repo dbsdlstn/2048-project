@@ -1,41 +1,49 @@
 /**
  * Canvas 2D board renderer. Owns the canvas, a `BoardView` (the animated view
- * model), a tile sprite cache and a list of effects, and drives them from an
- * on-demand `AnimationLoop`. Time comes from an injected `FrameClock`.
+ * model), a tile sprite cache, board marks and a list of effects, and drives
+ * them from an on-demand `AnimationLoop`. Time comes from an injected
+ * `FrameClock`.
+ *
+ * Hooks for later stages: every event of a played step is announced through
+ * `onCue` at the moment its animation starts (or immediately, flagged late, if
+ * a newer step fast-forwarded it). Stage 5 hangs particles, shake and sound on
+ * that; `addEffect` draws anything over the board.
  */
-import type { GameState, TurnResult } from '../core';
+import type { GameState, Position, RunStep } from '../core';
 import { browserClock, type FrameClock } from './clock';
-import { computeLayout, cellCenter, type BoardLayout } from './layout';
+import { cueEffect, type Effect } from './effects';
+import { cellAtPoint, cellCenter, computeLayout, type BoardLayout } from './layout';
 import { AnimationLoop } from './loop';
-import { TileSpriteCache, type CanvasFactory } from './spriteCache';
+import {
+  NO_MARKS,
+  marksAnimate,
+  paintBoardBackground,
+  paintMarksAbove,
+  paintMarksBelow,
+  type BoardMarks,
+} from './marks';
+import { TileSpriteCache, createDomCanvas, type CanvasFactory } from './spriteCache';
 import { NEON_THEME, type Theme } from './theme';
-import { STATUS_OVERLAYS, roundRectPath } from './tilePainter';
-import { BoardView, DEFAULT_TIMINGS, type AnimationTimings } from './viewModel';
+import { STATUS_OVERLAYS } from './tilePainter';
+import { BoardView, DEFAULT_TIMINGS, type AnimationTimings, type EventCue } from './viewModel';
 
 /**
- * Something drawn over the board for a while: particles, floating text, screen
- * shake. Stage 5 adds implementations; the renderer only drives them.
+ * Called once per event of a played step, when its animation starts. `late`
+ * is true when the cue fires early because a newer step (or `settle`)
+ * fast-forwarded the animation: sounds may still play, visuals usually skip.
  */
-export interface Effect {
-  /** Advances by `dt` ms. Return false once finished; the effect is then dropped. */
-  update(dt: number, now: number): boolean;
-  /** Draws above the tiles, in board space (CSS px, origin = board top-left). */
-  draw?(ctx: CanvasRenderingContext2D, layout: BoardLayout, now: number): void;
-  /** Camera displacement in CSS px this frame (screen shake). Summed over all effects. */
-  offset?(now: number): { readonly x: number; readonly y: number };
-}
+export type CueListener = (cue: EventCue, late: boolean) => void;
 
 export interface BoardRendererOptions {
   readonly theme?: Theme;
   readonly timings?: AnimationTimings;
   /** Time source and frame scheduler. Defaults to `performance.now` + `requestAnimationFrame`. */
   readonly clock?: FrameClock;
-  /** Creates the offscreen canvases of the sprite cache. */
+  /** Creates the offscreen canvases of the sprite cache and the board background. */
   readonly createCanvas?: CanvasFactory;
+  /** Plays the built-in effects for events (pulses, line flashes). Default true. */
+  readonly builtInEffects?: boolean;
 }
-
-/** Board corner radius as a fraction of its size. Keep in sync with `.board` in style.css. */
-export const BOARD_RADIUS_RATIO = 0.05;
 
 export class BoardRenderer {
   readonly view: BoardView;
@@ -46,6 +54,14 @@ export class BoardRenderer {
   private readonly sprites: TileSpriteCache;
   private readonly loop: AnimationLoop;
   private readonly resizeObserver: ResizeObserver;
+  private readonly createCanvas: CanvasFactory;
+  private readonly listeners = new Set<CueListener>();
+  /** Cues not fired yet, in time order. */
+  private pendingCues: EventCue[] = [];
+  private marks: BoardMarks = NO_MARKS;
+  /** Marks waiting for the current animation to end before they show. */
+  private pendingMarks: { marks: BoardMarks; at: number } | null = null;
+  private background: HTMLCanvasElement | OffscreenCanvas | null = null;
   private layout: BoardLayout;
   private pixelRatio = 1;
 
@@ -59,14 +75,17 @@ export class BoardRenderer {
     this.ctx = ctx;
     this.theme = options.theme ?? NEON_THEME;
     this.clock = options.clock ?? browserClock;
+    this.createCanvas = options.createCanvas ?? createDomCanvas;
     this.view = new BoardView(gridSize, options.timings ?? DEFAULT_TIMINGS);
-    this.sprites = new TileSpriteCache(
-      options.createCanvas
-        ? { theme: this.theme, createCanvas: options.createCanvas }
-        : { theme: this.theme },
-    );
+    this.sprites = new TileSpriteCache({ theme: this.theme, createCanvas: this.createCanvas });
     this.loop = new AnimationLoop(this.clock, this.tick);
     this.layout = computeLayout(1, gridSize);
+    if (options.builtInEffects ?? true) {
+      this.listeners.add((cue, late) => {
+        const effect = cueEffect(cue, this.theme, late);
+        if (effect) this.addEffect(effect);
+      });
+    }
 
     this.resizeObserver = new ResizeObserver(() => {
       this.resize();
@@ -77,35 +96,53 @@ export class BoardRenderer {
     this.resize();
   }
 
-  /** Clears the board and animates a new game's initial spawns. */
-  startGame(result: TurnResult): void {
-    this.view.clear(result.state.size);
-    this.playTurn(result);
+  // ---------------------------------------------------------------- BoardDisplay
+
+  /** Animates a run step. Safe to call mid-animation: the previous step is fast-forwarded. */
+  showStep(step: RunStep): void {
+    this.flushCues(true);
+    this.applyPendingMarks(true);
+    if (step.boardReplaced) {
+      this.view.clear(step.run.board.size);
+      this.effects.length = 0;
+    }
+    this.play(step.phases, step.run.board);
   }
 
-  /** Animates one turn. Safe to call mid-animation: the previous turn is fast-forwarded. */
-  playTurn(result: TurnResult): void {
-    try {
-      this.view.apply(result.phases, this.clock.now());
-    } catch (error) {
-      // The view lost track of a tile; never let a display bug break the game.
-      console.error(error);
-      this.view.syncTo(result.state);
+  /**
+   * Shows marks once the animation in flight has finished (so a sealed line
+   * appears after the move that sealed it, not before). Immediate when idle.
+   */
+  setMarks(marks: BoardMarks): void {
+    const now = this.clock.now();
+    const at = Math.max(this.view.endTime, this.pendingCues.at(-1)?.at ?? -Infinity);
+    if (at <= now || marks.targeting || this.marks.targeting) {
+      this.marks = marks;
+      this.pendingMarks = null;
+    } else {
+      this.pendingMarks = { marks, at };
     }
     this.loop.invalidate();
   }
 
-  /** Shows a state instantly, with no animation (e.g. a restored save). */
-  syncTo(state: GameState): void {
-    this.view.syncTo(state);
+  /** Empties the board (no tiles, no marks, no effects). */
+  clear(): void {
+    this.flushCues(true);
+    this.view.clear();
+    this.effects.length = 0;
+    this.marks = NO_MARKS;
+    this.pendingMarks = null;
     this.loop.invalidate();
   }
 
-  /** Jumps every running animation to its end and redraws. */
-  settle(): void {
-    this.view.finish();
-    this.draw(this.clock.now());
-    this.loop.invalidate();
+  // ---------------------------------------------------------------- hooks
+
+  /** Subscribes to event cues (see `CueListener`). Returns an unsubscribe function. */
+  onCue(listener: CueListener): () => void {
+    this.listeners.add(listener);
+    return () => {
+      this.listeners.delete(listener);
+    };
   }
 
   addEffect(effect: Effect): void {
@@ -113,12 +150,57 @@ export class BoardRenderer {
     this.loop.invalidate();
   }
 
+  /** The board cell under a viewport point (e.g. a pointer event), or null. */
+  cellAt(clientX: number, clientY: number): Position | null {
+    const rect = this.canvas.getBoundingClientRect();
+    if (rect.width <= 0) return null;
+    const scale = this.layout.size / rect.width;
+    return cellAtPoint(this.layout, (clientX - rect.left) * scale, (clientY - rect.top) * scale);
+  }
+
+  /** Viewport coordinates of a cell's centre (debug hook, automated taps). */
+  cellClientCenter(row: number, col: number): { x: number; y: number } {
+    const rect = this.canvas.getBoundingClientRect();
+    const scale = rect.width / this.layout.size;
+    const c = cellCenter(this.layout, row, col);
+    return { x: rect.left + c.x * scale, y: rect.top + c.y * scale };
+  }
+
+  // ---------------------------------------------------------------- control
+
+  /** Shows a state instantly, with no animation (e.g. a restored save). */
+  syncTo(state: GameState): void {
+    this.flushCues(true);
+    this.view.syncTo(state);
+    this.applyPendingMarks(true);
+    this.loop.invalidate();
+  }
+
+  /** Jumps every running animation to its end and redraws. */
+  settle(): void {
+    this.view.finish();
+    this.flushCues(true);
+    this.applyPendingMarks(true);
+    this.effects.length = 0;
+    this.draw(this.clock.now());
+    this.loop.invalidate();
+  }
+
   isAnimating(): boolean {
-    return this.view.isAnimating(this.clock.now()) || this.effects.length > 0;
+    return (
+      this.view.isAnimating(this.clock.now()) ||
+      this.effects.length > 0 ||
+      this.pendingCues.length > 0 ||
+      this.pendingMarks !== null
+    );
   }
 
   get boardLayout(): BoardLayout {
     return this.layout;
+  }
+
+  get currentMarks(): BoardMarks {
+    return this.marks;
   }
 
   /** Number of tile images currently in the sprite cache (for debugging / tests). */
@@ -137,17 +219,57 @@ export class BoardRenderer {
     this.loop.stop();
   }
 
+  // ---------------------------------------------------------------- internals
+
+  private play(phases: RunStep['phases'], board: GameState): void {
+    try {
+      this.pendingCues = this.view.apply(phases, this.clock.now());
+    } catch (error) {
+      // The view lost track of a tile; never let a display bug break the game.
+      console.error(error);
+      this.view.syncTo(board);
+      this.pendingCues = [];
+    }
+    this.loop.invalidate();
+  }
+
+  /** Fires due cues (all of them when `all`, flagged late). */
+  private flushCues(all: boolean, now = this.clock.now()): void {
+    let fired = 0;
+    for (const cue of this.pendingCues) {
+      if (!all && cue.at > now) break;
+      fired++;
+      for (const listener of this.listeners) listener(cue, all);
+    }
+    this.pendingCues = this.pendingCues.slice(fired);
+  }
+
+  private applyPendingMarks(force: boolean, now = this.clock.now()): void {
+    if (this.pendingMarks && (force || this.pendingMarks.at <= now)) {
+      this.marks = this.pendingMarks.marks;
+      this.pendingMarks = null;
+    }
+  }
+
   private readonly handleWindowResize = (): void => {
     this.resize();
   };
 
   private readonly tick = (now: number, dt: number): boolean => {
+    this.flushCues(false, now);
+    this.applyPendingMarks(false, now);
     const viewBusy = this.view.update(now);
     for (let i = this.effects.length - 1; i >= 0; i--) {
       if (!this.effects[i]?.update(dt, now)) this.effects.splice(i, 1);
     }
     this.draw(now);
-    return viewBusy || this.effects.length > 0;
+    return (
+      viewBusy ||
+      this.effects.length > 0 ||
+      this.pendingCues.length > 0 ||
+      this.pendingMarks !== null ||
+      marksAnimate(this.marks)
+    );
   };
 
   /** Matches the backing store to the CSS size times devicePixelRatio. */
@@ -163,8 +285,19 @@ export class BoardRenderer {
     this.pixelRatio = pixels / cssSize;
     this.layout = computeLayout(cssSize, this.view.size);
     this.sprites.configure(this.layout.cell, this.layout.radius, this.pixelRatio);
+    this.background = this.renderBackground(pixels);
     // Draw synchronously: resizing clears the canvas, and waiting a frame would flash.
     this.draw(this.clock.now());
+  }
+
+  /** The static board (plate, traces, rift, slots) is drawn once per size, like tile sprites. */
+  private renderBackground(pixels: number): HTMLCanvasElement | OffscreenCanvas | null {
+    const canvas = this.createCanvas(pixels, pixels);
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return null;
+    ctx.setTransform(this.pixelRatio, 0, 0, this.pixelRatio, 0, 0);
+    paintBoardBackground(ctx, this.layout, this.theme, this.pixelRatio);
+    return canvas;
   }
 
   private draw(now: number): void {
@@ -172,8 +305,10 @@ export class BoardRenderer {
     const pr = this.pixelRatio;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+    if (this.background) ctx.drawImage(this.background, 0, 0);
     // From here on, draw in CSS pixels; the transform maps them to device pixels.
     ctx.setTransform(pr, 0, 0, pr, 0, 0);
+    if (!this.background) paintBoardBackground(ctx, layout, theme, pr);
 
     let shakeX = 0;
     let shakeY = 0;
@@ -185,9 +320,9 @@ export class BoardRenderer {
       }
     }
 
-    this.drawBoard();
     ctx.save();
     ctx.translate(shakeX, shakeY);
+    paintMarksBelow(ctx, layout, this.marks);
     for (const frame of this.view.frame(now)) {
       if (frame.scale <= 0) continue;
       const c = cellCenter(layout, frame.row, frame.col);
@@ -212,27 +347,8 @@ export class BoardRenderer {
         });
       }
     }
+    paintMarksAbove(ctx, layout, this.marks, theme, now, (id) => this.view.tilePosition(id, now));
     for (const e of this.effects) e.draw?.(ctx, layout, now);
     ctx.restore();
-  }
-
-  private drawBoard(): void {
-    const { ctx, layout, theme } = this;
-    roundRectPath(ctx, 0, 0, layout.size, layout.size, layout.size * BOARD_RADIUS_RATIO);
-    ctx.fillStyle = theme.board;
-    ctx.fill();
-    ctx.lineWidth = 1.5;
-    ctx.strokeStyle = theme.boardEdge;
-    ctx.stroke();
-
-    ctx.fillStyle = theme.cell;
-    const half = layout.cell / 2;
-    for (let row = 0; row < layout.gridSize; row++) {
-      for (let col = 0; col < layout.gridSize; col++) {
-        const c = cellCenter(layout, row, col);
-        roundRectPath(ctx, c.x - half, c.y - half, layout.cell, layout.cell, layout.radius);
-        ctx.fill();
-      }
-    }
   }
 }

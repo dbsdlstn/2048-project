@@ -296,3 +296,62 @@ describe('BoardView', () => {
     }
   });
 });
+
+describe('BoardView cues', () => {
+  it('returns one cue per event with its phase start time', () => {
+    const board = stateFromGrid([
+      [2, 2, 0, 0],
+      [0, 0, 0, 0],
+      [0, 0, 0, 0],
+      [0, 0, 0, 0],
+    ]);
+    const view = new BoardView(4);
+    view.syncTo(board);
+    const out = playTurn({
+      board,
+      direction: 'left',
+      relics: [],
+      rules: {
+        fourChance: 0,
+        chainDepth: 0,
+        diagonalBreakFrom: null,
+        moveLimitBonus: 0,
+        bossPeriodBonus: 0,
+      },
+      hazards: NO_HAZARDS,
+      boss: null,
+    });
+    const phases = out.phases.filter((p) => p.events.length > 0);
+    const cues = view.apply(phases, 1000);
+    expect(cues).toHaveLength(phases.flatMap((p) => p.events).length);
+    const slide = cues.filter((c) => c.phase === 'slide');
+    const spawn = cues.filter((c) => c.phase === 'spawn');
+    expect(slide.every((c) => c.at === 1000)).toBe(true);
+    expect(spawn.every((c) => c.at === 1000 + T.slide + T.spawnDelay)).toBe(true);
+    expect(view.endTime).toBe(1000 + T.slide + T.spawnDelay + T.spawn);
+  });
+
+  it('tilePosition follows a sliding tile and is null once it is gone', () => {
+    const board = stateFromGrid([
+      [0, 0, 0, 2],
+      [0, 0, 0, 0],
+      [0, 0, 0, 0],
+      [0, 0, 0, 0],
+    ]);
+    const view = new BoardView(4);
+    view.syncTo(board);
+    const id = board.cells[3]?.id ?? -1;
+    view.apply(
+      [
+        {
+          kind: 'slide',
+          events: [{ type: 'move', tileId: id, from: { row: 0, col: 3 }, to: { row: 0, col: 0 } }],
+        },
+      ],
+      0,
+    );
+    expect(view.tilePosition(id, T.slide)?.col).toBe(0);
+    expect(view.tilePosition(id, T.slide / 2)?.col).toBeGreaterThan(0);
+    expect(view.tilePosition(999, 0)).toBeNull();
+  });
+});

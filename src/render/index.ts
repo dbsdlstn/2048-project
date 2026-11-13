@@ -7,4 +7,6 @@ export * from './theme';
 export * from './viewModel';
 export * from './tilePainter';
 export * from './spriteCache';
+export * from './marks';
+export * from './effects';
 export * from './renderer';

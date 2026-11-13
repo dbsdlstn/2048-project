@@ -13,6 +13,22 @@ export interface Theme {
   readonly fontFamily: string;
   /** Neon colour per power of two (hex), index = log2(value) - 1: 2 -> 0, 4 -> 1, ... */
   readonly ramp: readonly string[];
+  /** Circuit traces printed on the board between the slots. */
+  readonly trace: string;
+  /** The glowing crack ("rift") that runs under the board's circuitry. */
+  readonly rift: string;
+  readonly stone: { readonly fill: string; readonly edge: string; readonly crack: string };
+  readonly prism: string;
+  readonly ice: string;
+  readonly curse: string;
+  /** The warden's sealed line. */
+  readonly lock: string;
+  /** The corroder's next target. */
+  readonly bossTarget: string;
+  /** Targeting outline for a destroying relic. */
+  readonly targetDestroy: string;
+  /** Relic triggers (pulses). */
+  readonly relic: string;
 }
 
 export const NEON_THEME: Theme = {
@@ -34,6 +50,16 @@ export const NEON_THEME: Theme = {
     '#f72585', // 1024  magenta
     '#fdfdff', // 2048  white hot
   ],
+  trace: 'rgba(120, 140, 255, 0.16)',
+  rift: '#ffb347',
+  stone: { fill: '#2b2a33', edge: '#9a98a8', crack: '#14131a' },
+  prism: '#ffffff',
+  ice: '#a6ecff',
+  curse: '#b45cff',
+  lock: '#ff4d6d',
+  bossTarget: '#ff8a3d',
+  targetDestroy: '#ff4d6d',
+  relic: '#ffb347',
 };
 
 export interface TileColors {

@@ -35,7 +35,14 @@
   - [4.5 로그라이크 유물과 시너지 설계](#45-로그라이크-유물과-시너지-설계)
   - [4.6 보스 규칙과 "계산할 수 있는 정보는 보여 준다"](#46-보스-규칙과-계산할-수-있는-정보는-보여-준다)
   - [4.7 시뮬레이션으로 밸런스 잡기](#47-시뮬레이션으로-밸런스-잡기)
-- [5. 설계 결정 기록](#5-설계-결정-기록)
+- [5. 3b단계: 로그라이크를 화면에](#5-3b단계-로그라이크를-화면에)
+  - [5.1 상태 기계로 화면 흐름 만들기](#51-상태-기계로-화면-흐름-만들기)
+  - [5.2 컨트롤러와 표시 계층 분리: 인터페이스와 가짜 객체](#52-컨트롤러와-표시-계층-분리-인터페이스와-가짜-객체)
+  - [5.3 DOM 오버레이와 캔버스: 무엇을 어디에](#53-dom-오버레이와-캔버스-무엇을-어디에)
+  - [5.4 대상 지정과 모달 입력 모드](#54-대상-지정과-모달-입력-모드)
+  - [5.5 계산할 수 있는 정보는 화면에](#55-계산할-수-있는-정보는-화면에)
+  - [5.6 실제 브라우저로 흐름 검사하기](#56-실제-브라우저로-흐름-검사하기)
+- [6. 설계 결정 기록](#6-설계-결정-기록)
 - [부록: 자주 쓰는 명령어](#부록-자주-쓰는-명령어)
 
 ---
@@ -67,14 +74,14 @@
 ```
 
 - **입력 계층**은 "어느 방향으로 밀었는가"만 알아내서 `Direction` 하나로 바꿉니다. 손가락 좌표나 키 코드는 코어까지 내려가지 않습니다.
-- **컨트롤러**(`src/game/controller.ts`)는 현재 게임 상태를 들고 있다가, 방향이 들어오면 코어에 넘기고 결과를 렌더러와 HUD에 나눠 줍니다. 규칙은 판단하지 않는 얇은 접착층입니다.
+- **컨트롤러**(`src/game/runController.ts`)는 현재 런 상태를 들고 있다가, 방향이 들어오면 코어에 넘기고 결과를 렌더러와 화면(DOM)에 나눠 줍니다. 규칙은 판단하지 않는 얇은 접착층이고, 지금 어떤 화면인지(메뉴·진행·대상 지정·유물 선택·결과)를 상태 기계로 관리합니다(5.1장).
 - **코어**는 현재 상태와 방향을 받아 **새 상태**와 **이벤트 목록**을 돌려줍니다. 화면, 시간, 애니메이션을 전혀 모릅니다. 3a단계부터 이벤트는 **단계(phase)** 로 묶여 나옵니다(미끄러짐 → 돌 파괴 → 보스 → 생성 → 마무리, 4.1장).
 - **렌더 계층**은 이벤트 목록("3번 타일이 (0,3)에서 (0,1)로 이동", "1·2번이 합쳐져 5번 생성"…)을 읽어 그대로 애니메이션으로 재생합니다. 단계는 하나씩 차례로, 한 단계 안의 이벤트는 동시에 재생합니다. **HUD**는 `score`·`gameOver` 같은 이벤트를 보고 숫자와 오버레이를 바꿉니다.
 - **저장 계층**은 상태 객체를 JSON으로 저장합니다. 상태가 평범한 데이터이기 때문에 가능한 일입니다.
 
 이 구조의 핵심은 **"규칙을 판단하는 곳은 코어 단 한 곳"** 이라는 점입니다. 렌더러는 규칙을 다시 계산하지 않고, 코어가 알려준 사실만 보여 줍니다.
 
-로그라이크 모드에서는 컨트롤러 자리에 **런 상태 기계**(`src/core/run.ts`)가 한 겹 더 들어갑니다. `runMove(run, 'left')`가 `{ run, phases, events }`를 돌려주고, 화면(3b단계)은 `run.status`를 보고 "유물 선택", "승리", "실패" 화면을 고릅니다.
+로그라이크 모드에서는 컨트롤러와 보드 사이에 **런 상태 기계**(`src/core/run.ts`)가 한 겹 더 들어갑니다. `runMove(run, 'left')`가 `{ run, phases, events }`를 돌려주고, 화면(3b단계)은 `run.status`를 보고 "유물 선택", "승리", "실패" 화면을 고릅니다. 런 상태를 화면용 모델(HUD 숫자, 보드 표시, 한국어 문구)로 바꾸는 일은 프레젠터 `src/game/runView.ts`가 맡습니다(5.2장).
 
 ```
  방향 ──▶ runMove(run, dir) ──▶ playTurn(보드, 유물, 방해 수치, 보스) ──▶ 단계별 이벤트
@@ -84,18 +91,18 @@
 
 ### 1.2 폴더별 역할
 
-| 폴더          | 역할                                                                 | 상태                                       |
-| ------------- | -------------------------------------------------------------------- | ------------------------------------------ |
-| `src/core/`   | 순수 게임 로직. DOM 없음, 테스트 대상                                | 1단계 ✔, 3a단계에서 로그라이크 계층 추가   |
-| `src/render/` | Canvas 보드 렌더러, 트윈/이징, 뷰 모델 (파티클·화면 흔들림은 5단계)  | 2단계 ✔                                    |
-| `src/input/`  | 포인터 스와이프 + 키보드 → `Direction`                               | 2단계 ✔                                    |
-| `src/ui/`     | DOM 오버레이: HUD, 게임 오버 화면 (메뉴·유물 선택은 3~4단계)         | 2단계 ✔ (일부)                             |
-| `src/game/`   | 게임 컨트롤러: 입력 → 코어 → 렌더/HUD 연결 (모드는 3~4단계에서 확장) | 2단계 ✔                                    |
-| `src/audio/`  | WebAudio로 합성한 효과음                                             | 5단계 예정                                 |
-| `src/save/`   | localStorage 저장(최고 기록, 진행 중인 런, 설정)                     | 4단계 예정                                 |
-| `tests/`      | Vitest 단위 테스트 (나중에 Playwright 스모크 테스트)                 | 1단계 ✔, 2단계에서 렌더·입력·컨트롤러 추가 |
-| `tools/`      | 개발용 명령줄 도구 (밸런스 봇 시뮬레이터 `npm run sim`)              | 3a단계 ✔                                   |
-| `docs/`       | 이 문서                                                              | 매 단계 갱신                               |
+| 폴더          | 역할                                                                                           | 상태                                     |
+| ------------- | ---------------------------------------------------------------------------------------------- | ---------------------------------------- |
+| `src/core/`   | 순수 게임 로직. DOM 없음, 테스트 대상                                                          | 1단계 ✔, 3a단계에서 로그라이크 계층 추가 |
+| `src/render/` | Canvas 보드 렌더러, 트윈/이징, 뷰 모델, 보드 표시·기본 효과, 이벤트 큐 (파티클·흔들림은 5단계) | 2단계 ✔, 3b단계에서 표시·큐 추가         |
+| `src/input/`  | 포인터 스와이프·탭 + 키보드(방향, Esc)                                                         | 2단계 ✔, 3b단계에서 탭·Esc               |
+| `src/ui/`     | DOM: 메뉴, HUD, 보스 줄, 유물 버튼·칩, 안내, 유물 선택, 일시정지, 결과                         | 3b단계 ✔ (튜토리얼·설정은 4단계)         |
+| `src/game/`   | 런 컨트롤러(화면 상태 기계), 프레젠터, 디버그 훅                                               | 3b단계 ✔                                 |
+| `src/audio/`  | WebAudio로 합성한 효과음                                                                       | 5단계 예정                               |
+| `src/save/`   | localStorage 저장(최고 기록, 진행 중인 런, 설정)                                               | 4단계 예정                               |
+| `tests/`      | Vitest 단위 테스트 (나중에 Playwright 스모크 테스트)                                           | 1단계 ✔, 2·3a·3b단계에서 추가            |
+| `tools/`      | 개발용 명령줄 도구 (밸런스 봇 시뮬레이터 `npm run sim`)                                        | 3a단계 ✔                                 |
+| `docs/`       | 이 문서                                                                                        | 매 단계 갱신                             |
 
 1단계에서 만든 `src/core/` 파일:
 
@@ -108,6 +115,27 @@
 | `src/core/tile.ts`    | 타일 생성과 "합체 규칙"(합쳐지는가? 무엇이 되는가?)           |
 | `src/core/board.ts`   | 새 게임, 이동·합체, 타일 생성, 게임 오버 판정                 |
 | `src/core/index.ts`   | 코어의 공개 입구. 바깥에서는 여기서만 import                  |
+
+3b단계에서 만들거나 크게 바꾼 파일:
+
+| 파일                        | 내용                                                                                                                         |
+| --------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `src/game/runController.ts` | `RunController`(화면 상태 기계)와 표시 계층 인터페이스 `BoardDisplay`, `UiDisplay` (`controller.ts` 대체)                    |
+| `src/game/runView.ts`       | 프레젠터: `hudModel`, `bossInfo`, `boardMarks`, 화면 모델, 안내·배너, 기록. 화면의 한국어 문구 모음                          |
+| `src/game/debug.ts`         | `?mode=`, `?stage=`, `?relics=` 시작 옵션, `run/hud/screen/start/move/chooseRelic/useActive/activate/tapCell/cellPoint/load` |
+| `src/render/marks.ts`       | `BoardMarks`, 보드 배경(칩 슬롯·회로선·균열), 봉쇄 줄·부식자 대상·대상 지정 그리기                                           |
+| `src/render/effects.ts`     | `Effect` 인터페이스, 펄스·줄 섬광·테두리 섬광, 이벤트별 기본 효과 `cueEffect`                                                |
+| `src/render/renderer.ts`    | `showStep`/`setMarks`/`clear`, 이벤트 큐 `onCue`, `cellAt`/`cellClientCenter`, 배경 캐시                                     |
+| `src/render/viewModel.ts`   | `apply`가 `EventCue[]`를 돌려줌, `endTime`, `tilePosition`                                                                   |
+| `src/render/tilePainter.ts` | 칩 모양 숫자 타일, 파편 돌, 스펙트럼 프리즘, 서리 판 얼음, 지그재그 저주                                                     |
+| `src/render/layout.ts`      | `cellAtPoint`: 보드 좌표 → 칸                                                                                                |
+| `src/input/`                | 탭 판정(`isTap`, `onTap`)과 Esc(`onBack`)                                                                                    |
+| `src/ui/gameScreen.ts`      | 화면 틀과 `GameUi`(`UiDisplay` 구현): 시트 전환, 안내, 배너, 대상 지정 막대                                                  |
+| `src/ui/hud.ts`             | `Hud`: 목표·이동·점수·보스 줄, 사용 유물 버튼, 유물 칩과 말풍선, "유물 +N"                                                   |
+| `src/ui/screens.ts`         | 메뉴, 유물 선택, 일시정지(유물 목록), 결과 시트                                                                              |
+| `src/ui/dom.ts`             | 작은 DOM 도우미(`ref`, `el`, `button`, `replayClass`)                                                                        |
+| `src/ui/style.css`          | 세로·가로 레이아웃(컨테이너 쿼리), 칩 모티프, 희귀도 색, 시트                                                                |
+| `src/core/run.ts`           | `restoreStep(run)`: 런의 보드를 빈 화면에 다시 그리는 단계 (저장 이어 하기·테스트용)                                         |
 
 3a단계에서 만들거나 크게 바꾼 파일:
 
@@ -142,10 +170,10 @@
 | `src/input/swipe.ts`        | `resolveSwipe`, `SwipeTracker` (DOM 없음, 테스트 대상)                                     |
 | `src/input/keys.ts`         | 방향키/WASD → `Direction` (`event.code` 기준)                                              |
 | `src/input/index.ts`        | `attachInput`: 실제 DOM 이벤트를 연결하고 해제 함수를 돌려줌                               |
-| `src/ui/gameScreen.ts`      | 화면 DOM 만들기 (HUD, 보드 캔버스, 안내 문구)                                              |
-| `src/ui/hud.ts`             | `Hud`: 점수, 최고 기록, "+N" 팝업, 게임 오버 오버레이                                      |
+| `src/ui/gameScreen.ts`      | 화면 DOM 만들기 (3b단계에서 런 화면으로 다시 씀)                                           |
+| `src/ui/hud.ts`             | `Hud`: 점수, "+N" 팝업 (3b단계에서 런 HUD로 다시 씀)                                       |
 | `src/ui/style.css`          | 세로 화면 레이아웃, safe-area, 스크롤/줌 방지, 네온 스타일                                 |
-| `src/game/controller.ts`    | `GameController`와 표시 계층 인터페이스(`BoardDisplay`, `HudDisplay`)                      |
+| `src/game/controller.ts`    | `GameController` (3b단계에서 `runController.ts`로 대체, D48)                               |
 | `src/game/debug.ts`         | URL 옵션(`?seed=`, `?debug`) 읽기, `window.__neonRift` 디버그 API                          |
 | `src/main.ts`               | 위 부품을 조립하는 진입점                                                                  |
 
@@ -513,7 +541,7 @@ return leader.kind === 'number' && follower.kind === 'number' && ...
 #### 연습 과제
 
 1. `tsconfig.json`에서 `noUncheckedIndexedAccess`를 끄고 `npm run build`, 다시 켜고 `npm run build`. 켰을 때 코드에 어떤 처리가 필요해지는지 `src/core/board.ts`에서 찾아보세요.
-2. `npm run dev`로 개발 서버를 켜고 `src/ui/gameScreen.ts`의 안내 문구(`화면을 밀거나…`)를 바꿔 저장해 보세요. 브라우저가 즉시 바뀌는 것(HMR)을 확인합니다.
+2. `npm run dev`로 개발 서버를 켜고 `src/ui/screens.ts`의 메뉴 문구(`합쳐서 균열을 닫는…`)를 바꿔 저장해 보세요. 브라우저가 즉시 바뀌는 것(HMR)을 확인합니다.
 3. `npm run build` 후 `dist/index.html`을 열어 보세요. 스크립트 경로가 `/2048-project/assets/...`로 시작하는 것이 `base` 설정의 효과입니다.
 
 ---
@@ -856,7 +884,7 @@ const onPointerDown = (e: PointerEvent): void => {
 #### 어디에 쓰였나
 
 - `src/render/viewModel.ts`의 `apply()` 첫 줄이 `this.finish()`
-- `src/game/controller.ts` — 코어 상태는 입력이 오면 **즉시** 갱신됩니다. 애니메이션을 기다리지 않습니다.
+- `src/game/runController.ts` — 코어 상태는 입력이 오면 **즉시** 갱신됩니다. 애니메이션을 기다리지 않습니다.
 
 #### 핵심 코드
 
@@ -900,9 +928,11 @@ finish(): void {
 입력, 코어, 렌더러, HUD를 `main.ts`에서 직접 엮으면 금방 스파게티가 됩니다. 그렇다고 큰 "게임 매니저" 클래스를 만들면 테스트하기 어렵습니다.
 컨트롤러는 **상태를 들고, 코어를 부르고, 결과를 나눠 주는 일만** 합니다. 표시 계층은 **인터페이스**로만 알기 때문에 테스트에서는 가짜(fake) 객체를 넣을 수 있습니다.
 
+> 3b단계에서 `GameController`는 `RunController`(`src/game/runController.ts`)로 바뀌었습니다(D48). 아래 발췌는 2단계 당시 모습이고, 원리(상태를 들고 → 코어를 부르고 → 인터페이스로 나눠 줌)는 그대로입니다. 지금 코드는 5.1~5.2장을 보세요.
+
 #### 어디에 쓰였나
 
-- `src/game/controller.ts` — `GameController`, `BoardDisplay`, `HudDisplay`
+- `src/game/controller.ts`(2단계, 지금은 `runController.ts`) — `GameController`, `BoardDisplay`, `HudDisplay`
 - `src/ui/hud.ts` — `HudDisplay`의 실제 구현 (DOM)
 - `src/ui/gameScreen.ts`, `src/ui/style.css` — 화면 구성과 반응형 레이아웃
 - `tests/controller.test.ts` — 가짜 보드/HUD로 점수, 최고 기록, 게임 오버, 새 게임 확인
@@ -949,7 +979,7 @@ controller.newGame();
 
 #### 연습 과제
 
-1. `tests/controller.test.ts`의 `FakeHud`처럼, 이벤트를 콘솔에 한국어로 찍는 `LoggingBoard implements BoardDisplay`를 만들어 렌더러 대신 넣어 보세요. 화면 없이도 게임이 돌아가는 것을 확인합니다.
+1. `tests/runController.test.ts`의 `FakeBoard`처럼, 이벤트를 콘솔에 한국어로 찍는 `LoggingBoard implements BoardDisplay`를 만들어 렌더러 대신 넣어 보세요. 화면 없이도 게임이 돌아가는 것을 확인합니다.
 2. 4단계를 미리 연습: `onBestChange`에서 `localStorage`에 최고 기록을 저장하고, `initialBest`로 불러오게 해 보세요.
 3. 개발자 도구 기기 모드에서 320×568, 360×640, 768×1024, 가로 640×360을 차례로 확인하고, 보드가 잘리지 않는지 보세요.
 
@@ -1048,7 +1078,7 @@ configure(cell: number, radius: number, pixelRatio: number): void {
 
 해결책은 **의존성 주입**입니다. "시간을 알려 주고 다음 프레임을 예약해 주는 것"을 인터페이스(`FrameClock`)로 만들어 바깥에서 넣어 줍니다. 실제 게임에는 브라우저 시계를, 테스트에는 **손으로 돌리는 시계**를 넣습니다. 코드는 어느 쪽인지 모릅니다.
 
-디버그 훅은 같은 아이디어를 브라우저에서 쓰는 것입니다. 주소에 `?debug`를 붙이면 멈췄다가 한 프레임씩 넘길 수 있는 시계로 게임이 시작되고, 콘솔에서 `window.__neonRift`로 게임을 조작할 수 있습니다. `?seed=42`는 같은 판을 다시 시작합니다(1단계의 시드 RNG 덕분).
+디버그 훅은 같은 아이디어를 브라우저에서 쓰는 것입니다. 주소에 `?debug`를 붙이면 멈췄다가 한 프레임씩 넘길 수 있는 시계로 게임이 시작되고, 콘솔에서 `window.__neonRift`로 게임을 조작할 수 있습니다. `?seed=42`는 같은 판을 다시 시작합니다(1단계의 시드 RNG 덕분). 3b단계에서 런 조작용 함수가 늘었습니다(5.6장).
 
 #### 어디에 쓰였나
 
@@ -1105,16 +1135,16 @@ expect(frames.at(-1)).toEqual({ now: 5000 + T.slide / 2, tiles: 2 });
 브라우저에서는:
 
 ```js
-// 주소: .../2048-project/?debug&seed=42
+// 주소: .../2048-project/?debug&seed=42&mode=run   (mode가 없으면 메뉴에서 시작)
 __neonRift.grid(); // [[0,0,0,0],[0,0,0,0],[0,2,0,0],[0,2,0,0]]
 __neonRift.move('up'); // 스와이프와 똑같이 컨트롤러를 거침
 __neonRift.advance(55); // 실제 시계를 멈추고 55ms만큼 진행 → 미끄러지는 중간 모습
 __neonRift.settle(); // 남은 애니메이션 즉시 완료
-__neonRift.state(); // 코어 상태의 복사본(평범한 데이터)
+__neonRift.state(); // 보드 상태의 복사본(평범한 데이터). 런 전체는 run()
 __neonRift.resume(); // 실제 시계로 복귀
 ```
 
-브라우저 검사 스크립트는 코어를 따로 번들해서 "시드 42에서 이 순서로 밀면 보드는 이것"을 독립적으로 계산하고, 키보드·터치·마우스 입력 후의 `__neonRift.grid()`와 칸 하나까지 비교합니다. 그래서 검사가 "점수가 바뀌었다" 수준이 아니라 **정확한 결과**를 확인합니다.
+2단계의 브라우저 검사 스크립트는 코어를 따로 번들해서 "시드 42에서 이 순서로 밀면 보드는 이것"을 독립적으로 계산하고, 키보드·터치·마우스 입력 후의 `__neonRift.grid()`와 칸 하나까지 비교합니다. 그래서 검사가 "점수가 바뀌었다" 수준이 아니라 **정확한 결과**를 확인합니다.
 
 보안·배포 관점: 훅은 `?debug`가 있을 때만 붙습니다. 이 게임은 점수를 서버에 보내지 않으므로 치트 걱정은 없지만, 평소 사용자에게 내부 API를 노출하지 않는 것이 기본 예의입니다.
 
@@ -1128,7 +1158,7 @@ __neonRift.resume(); // 실제 시계로 복귀
 
 ## 4. 3a단계: 로그라이크 코어
 
-이 단계에서는 화면을 하나도 만들지 않았습니다. 방해 타일, 스테이지 목표, 보스, 유물, 런 흐름을 **전부 순수 코어 안에** 넣고, 테스트와 봇 시뮬레이션으로 검증했습니다. 화면(유물 선택, 결과 화면, HUD)은 3b단계에서 이 API 위에 올립니다.
+이 단계에서는 화면을 하나도 만들지 않았습니다. 방해 타일, 스테이지 목표, 보스, 유물, 런 흐름을 **전부 순수 코어 안에** 넣고, 테스트와 봇 시뮬레이션으로 검증했습니다. 화면(유물 선택, 결과 화면, HUD)은 3b단계(5장)에서 이 API 위에 올렸습니다.
 
 이 장의 중심 질문은 하나입니다. **"규칙이 복잡해져도 코어를 순수하고, 결정적이고, 저장 가능한 상태로 유지하려면 무엇을 지켜야 하는가?"**
 
@@ -1593,7 +1623,7 @@ export function advanceBoss(state: GameState, boss: BossState): BossStep {
 }
 ```
 
-`bossPreview(boss, board)`는 다음 발동이 무엇을 할지 알려 줍니다. 부식자는 대상 타일 id까지 미리 계산되므로 3b단계 화면은 그 타일에 표시를 달 수 있습니다. 봉쇄자가 고를 줄과 혼돈의 섞임 결과는 **난수**라서 미리 알 수 없고, 그래서 미리보기도 "무엇이 일어난다"까지만 줍니다. "계산할 수 있는 것"과 "운"의 경계가 그대로 코드에 드러납니다.
+`bossPreview(boss, board)`는 다음 발동이 무엇을 할지 알려 줍니다. 부식자는 대상 타일 id까지 미리 계산되므로 3b단계 화면은 그 타일에 주황 괄호를 답니다(5.5장). 봉쇄자가 고를 줄과 혼돈의 섞임 결과는 **난수**라서 미리 알 수 없고, 그래서 미리보기도 "무엇이 일어난다"까지만 줍니다. "계산할 수 있는 것"과 "운"의 경계가 그대로 코드에 드러납니다.
 
 봉쇄 규칙에는 안전장치가 하나 있습니다. **봉쇄 때문에만 막힌 보드라면 봉쇄가 즉시 풀립니다.** 봉쇄가 걸린 상태에서 움직일 수 없으면 턴이 흐르지 않으니 봉쇄도 영원히 안 풀리고, 플레이어는 자기 실수가 아닌 이유로 집니다. 그런 패배는 배울 것이 없어서 규칙으로 막았습니다.
 
@@ -1702,9 +1732,375 @@ function releaseLockIfStuck(run: RunState) {
 2. `--runs 2000`으로 돌려 유물 표의 숫자가 300런일 때와 얼마나 달라지는지 보세요. 표준오차를 출력하는 코드를 추가해 보면 더 좋습니다.
 3. 무작위 봇의 1막 통과율을 10% 아래로, 코너 봇은 95% 위로 만드는 1막 보스 설정을 찾아보세요. 이동 제한만 바꾸는 것과 방해 확률만 바꾸는 것 중 어느 쪽이 두 봇을 더 잘 가르나요?
 
+## 5. 3b단계: 로그라이크를 화면에
+
+3a단계의 순수 코어(`startRun / runMove / chooseRelic / useActive`) 위에 실제 화면을 올렸습니다. 메뉴, HUD, 보스 안내, 유물 선택, 결과 화면, 사용 유물의 대상 지정, 보드 위의 표시(봉쇄된 줄, 부식자의 다음 대상)가 생겼고, 2단계의 "그냥 2048" 모드는 없앴습니다. 이 장의 주제는 **화면 쪽 설계**입니다. 규칙은 하나도 새로 만들지 않았다는 점이 중요합니다(코어에 추가된 것은 저장된 런을 다시 그리는 `restoreStep` 하나뿐).
+
+```
+ [입력] 스와이프·탭·Esc ──▶ RunController ──▶ 코어(runMove …) ──▶ RunStep
+                              │  화면 상태 기계                      │
+                              │  (menu/playing/targeting/…)          │
+                              ├──▶ BoardDisplay: showStep, setMarks ◀┘  (캔버스)
+                              └──▶ UiDisplay: showScreen, updateHud, showHint … (DOM)
+                                        ▲
+                         runView.ts(프레젠터): RunState → 화면 모델(한국어 문자열 포함)
+```
+
+### 5.1 상태 기계로 화면 흐름 만들기
+
+#### 왜 필요한가
+
+게임 화면은 "지금 무엇을 받아들이는가"가 계속 바뀝니다. 메뉴에서는 모드 선택만, 게임 중에는 스와이프와 유물 버튼, 대상 지정 중에는 칸 탭과 취소만, 유물 선택 중에는 카드만 받아야 합니다. 이걸 `if (offerOpen && !paused && …)` 같은 불리언 여러 개로 관리하면 "일시정지 중인데 유물 선택 창도 열림" 같은 **불가능한 조합**이 생깁니다.
+
+상태 기계는 "가능한 상태를 이름 붙여 나열하고, 각 상태에서 허용되는 입력과 다음 상태만 정의"합니다. 상태가 하나의 값이므로 불가능한 조합이 아예 표현되지 않습니다.
+
+#### 어디에 쓰였나
+
+- `src/game/runController.ts` — `RunController`: 화면 상태(`ScreenModel['kind']`)와 대상 지정 중인 유물(`targeting`)
+- `src/game/runView.ts` — `ScreenModel` 유니온 타입(화면마다 필요한 데이터를 함께 담음)
+- `tests/runController.test.ts` — 흐름 전체를 가짜 표시 계층으로 검증
+
+#### 핵심 코드
+
+화면 상태는 **두 층**입니다. 런 자체의 상태(`run.status`: playing/offer/victory/gameOver)는 코어가 정하고, 화면만의 상태(메뉴, 일시정지, 대상 지정)는 컨트롤러가 더합니다. 컨트롤러는 코어 상태를 복제하지 않고 **매번 거기서 화면을 유도**합니다.
+
+```ts
+// src/game/runController.ts
+private screenFor(run: RunState): ScreenModel {
+  switch (run.status) {
+    case 'playing':
+      return this.targeting
+        ? { kind: 'targeting', relic: this.targeting, prompt: targetingPrompt(this.targeting), error: null }
+        : { kind: 'playing' };
+    case 'offer':
+      return offerScreen(run);
+    case 'victory':
+    case 'gameOver':
+      return resultScreen(run, this.isNewRecord(run));
+  }
+}
+```
+
+입력마다 "지금 상태에서 받는가"를 첫 줄에서 거릅니다. 거부된 입력은 `false`를 돌려주므로 테스트하기 쉽습니다.
+
+```ts
+handleDirection(direction: Direction): boolean {
+  if (!this.state || this.screen !== 'playing') return false; // 메뉴·선택·지정·정지 중엔 무시
+  const step = runMove(this.state, direction);
+  if (!step.changed) return false;
+  this.apply(step);
+  return true;
+}
+```
+
+```
+ menu ──start──▶ playing ◀────────────────┐
+                  │ │ │                    │
+        pause ◀───┘ │ └──▶ targeting ──────┤ (칸 탭 / 취소)
+                    ▼                      │
+      offer (클리어·무한 단계 도달) ──────────┘ chooseRelic
+                    ▼
+      result (승리/실패/종료) ──retry──▶ playing,  ──menu──▶ menu
+```
+
+`ScreenModel`은 화면 종류와 **그 화면에 필요한 데이터**를 함께 담은 판별 유니온입니다. `offer`면 카드 목록이, `result`면 요약이 반드시 있습니다. 표시 쪽은 `switch (screen.kind)`만 하면 되고, TypeScript가 빠진 경우를 잡아 줍니다.
+
+#### 연습 과제
+
+1. "설정" 화면(소리 끄기 등)을 상태로 추가해 보세요. `ScreenModel`에 종류를 하나 더하면 컴파일러가 어디를 고쳐야 하는지 알려 줍니다.
+2. 지금은 유물 선택 화면에서 Esc가 아무 일도 하지 않습니다(`back()`이 `pause()`를 시도하지만 거부됨). 의도된 동작인지, 바꿔야 한다면 어떤 상태 전이가 맞는지 생각해 보세요.
+3. `tests/runController.test.ts`의 "pause blocks input" 테스트를 참고해 "대상 지정 중 일시정지하면 지정이 취소된다"를 확인하는 테스트를 써 보세요.
+
 ---
 
-## 5. 설계 결정 기록
+### 5.2 컨트롤러와 표시 계층 분리: 인터페이스와 가짜 객체
+
+#### 왜 필요한가
+
+화면 흐름은 버그가 숨기 좋은 곳입니다("스테이지를 깼는데 다음 스테이지 배너가 안 나옴", "되돌리기 후 보드가 이상함"). 하지만 브라우저를 띄워야만 확인할 수 있다면 테스트가 느리고 불안정합니다. 컨트롤러가 렌더러와 DOM을 **인터페이스로만** 알면, 테스트에서는 호출을 기록만 하는 가짜(fake)를 넣고 수백 가지 흐름을 1초 안에 확인할 수 있습니다.
+
+#### 어디에 쓰였나
+
+- `src/game/runController.ts` — `BoardDisplay`, `UiDisplay` 인터페이스
+- 실제 구현: `src/render/renderer.ts`의 `BoardRenderer`(캔버스), `src/ui/gameScreen.ts`의 `GameUi`(DOM)
+- 가짜 구현: `tests/runController.test.ts`의 `FakeBoard`, `FakeUi`; `tests/debug.test.ts`의 `ViewBoard`(진짜 뷰 모델 + 손으로 돌리는 시계)
+
+#### 핵심 코드
+
+```ts
+// src/game/runController.ts — 컨트롤러가 아는 전부
+export interface BoardDisplay {
+  showStep(step: RunStep): void; // boardReplaced면 비우고 재생
+  setMarks(marks: BoardMarks): void; // 봉쇄 줄, 부식자 대상, 대상 지정
+  clear(): void;
+}
+export interface UiDisplay {
+  showScreen(screen: ScreenModel): void;
+  updateHud(hud: HudModel): void;
+  scoreGained(amount: number): void;
+  showHint(hint: Hint | null): void;
+  announceStage(banner: StageBanner): void;
+}
+```
+
+```ts
+// tests/runController.test.ts — 가짜는 받은 것을 적어 둘 뿐
+class FakeUi implements UiDisplay {
+  screens: ScreenModel[] = [];
+  showScreen(screen: ScreenModel): void {
+    this.screens.push(screen);
+  }
+  // …
+}
+
+it('stage clear → offer → pick → next stage with banner, relic and stone hint', () => {
+  controller.load(clearable()); // 정확한 보드를 꾸며 넣기
+  controller.handleDirection('left');
+  expect(ui.screen.kind).toBe('offer');
+  controller.chooseRelic(pick);
+  expect(ui.hud?.stageLabel).toBe('1막 2');
+  expect(ui.hint?.key).toBe('hazard:stone');
+});
+```
+
+테스트에 "정확한 상황"을 만들기 위해 `controller.load(run)`을 씁니다. 런 상태가 평범한 데이터라서(2.3장) 아무 보드나 꾸며 넣을 수 있고, 4단계의 "저장된 런 이어 하기"도 같은 함수를 씁니다. 다시 그리는 데 필요한 이벤트는 코어의 `restoreStep(run)`이 만듭니다.
+
+두 인터페이스 사이에는 **프레젠터**(`src/game/runView.ts`)가 있습니다. `hudModel(run)`, `boardMarks(run, targeting)`, `offerScreen(run)` 같은 순수 함수가 런 상태를 "화면이 그대로 그리면 되는 모델"로 바꿉니다. 한국어 문구도 전부 여기 있어서 `tests/runView.test.ts`가 "1막 보스", "다음 발동: 64 → 32" 같은 문자열까지 확인합니다. DOM 코드는 받은 문자열을 `textContent`에 넣기만 합니다.
+
+#### 연습 과제
+
+1. `FakeUi`처럼 화면 호출을 한국어 로그로 찍는 `ConsoleUi implements UiDisplay`를 만들어 Node에서 런 하나를 끝까지 돌려 보세요. 화면 없이 게임 흐름 전체가 돌아갑니다.
+2. `hudModel`의 남은 이동 경고 기준(`LOW_MOVES`)을 바꾸고, 어느 테스트가 깨지는지 보세요. 숫자 하나가 바뀌었을 때 DOM 테스트 없이 잡힌다는 점이 핵심입니다.
+3. 생각해 보기: `GameUi`(DOM)는 단위 테스트가 없습니다. 무엇으로 대신 확인하고 있나요? (힌트: 5.6장의 브라우저 검사)
+
+---
+
+### 5.3 DOM 오버레이와 캔버스: 무엇을 어디에
+
+#### 왜 필요한가
+
+캔버스는 빠르고 자유롭지만 글자 줄바꿈, 버튼, 포커스, 스크린 리더, 반응형 배치를 전부 직접 해야 합니다. DOM은 그 반대입니다. 둘을 섞되 **경계 규칙**이 있어야 "이 표시는 어디서 고치지?"를 헤매지 않습니다.
+
+이 프로젝트의 규칙: **칸에 묶인 것은 캔버스, 읽거나 누르는 것은 DOM.**
+
+| 캔버스 (`src/render/`)                                    | DOM (`src/ui/`)                                      |
+| --------------------------------------------------------- | ---------------------------------------------------- |
+| 타일, 돌·프리즘 그림, 얼음·저주 표시                      | 스테이지 이름, 목표와 진행 막대, 남은 이동, 점수     |
+| 봉쇄된 줄(빗금 띠 + 남은 턴 배지)                         | 보스 이름·규칙·발동까지 남은 턴·미리보기 문장        |
+| 부식자의 다음 대상(모서리 괄호 + 남은 턴)                 | 사용 유물 버튼, 유물 칩과 설명 말풍선                |
+| 대상 지정 중 고를 수 있는 칸(점선 테두리)과 나머지 어둡게 | 안내 한 줄, 스테이지 배너, 대상 지정 안내·취소 버튼  |
+| 발동 펄스, 줄 섬광 같은 짧은 효과                         | 메뉴, 유물 선택, 일시정지, 결과 화면(전체 화면 시트) |
+
+DOM 요소가 보드 위에 겹치는 경우도 규칙이 있습니다. 배너·안내처럼 잠깐 떴다 사라지는 것만 보드 위에 두고, **플레이어가 보드를 보며 판단해야 하는 동안 떠 있는 것**(대상 지정 막대, "움직일 수 없어요")은 보드를 가리지 않도록 유물 줄 자리에 띄웁니다. 처음에는 보드 아래쪽에 두었다가, 맨 아랫줄 타일을 폭탄으로 고를 수 없는 문제를 스크린샷에서 발견하고 옮겼습니다.
+
+#### 어디에 쓰였나
+
+- `src/render/marks.ts` — `BoardMarks` 타입, 보드 배경(슬롯·회로·균열), 봉쇄 줄·부식자 대상·대상 지정 그리기
+- `src/render/effects.ts` — 펄스·줄 섬광·테두리 섬광과 이벤트별 기본 효과(`cueEffect`)
+- `src/ui/gameScreen.ts`(틀 + `GameUi`), `src/ui/hud.ts`(HUD), `src/ui/screens.ts`(전체 화면 시트), `src/ui/style.css`
+
+#### 핵심 코드
+
+보드 표시는 **애니메이션이 끝난 뒤** 바뀝니다. 봉쇄가 걸린 이동을 재생하는 도중에 빗금이 먼저 나타나면 원인과 결과가 뒤집혀 보이기 때문입니다. 반대로 대상 지정 표시는 누르자마자 보여야 하므로 즉시 바꿉니다.
+
+```ts
+// src/render/renderer.ts
+setMarks(marks: BoardMarks): void {
+  const now = this.clock.now();
+  const at = Math.max(this.view.endTime, this.pendingCues.at(-1)?.at ?? -Infinity);
+  if (at <= now || marks.targeting || this.marks.targeting) {
+    this.marks = marks; // 즉시
+    this.pendingMarks = null;
+  } else {
+    this.pendingMarks = { marks, at }; // 지금 재생 중인 턴이 끝나면
+  }
+  this.loop.invalidate();
+}
+```
+
+5단계(연출·소리)를 위한 연결 지점은 **큐(cue)** 입니다. `BoardView.apply`가 이벤트마다 "이 이벤트의 애니메이션이 시작되는 시각"을 돌려주고, 렌더러는 그 시각이 되면 구독자에게 알립니다. 빨리 감기(D12)로 건너뛴 이벤트는 `late: true`로 즉시 알립니다(소리는 낼 수도, 효과는 생략할 수도 있게).
+
+```ts
+// src/render/renderer.ts
+renderer.onCue((cue, late) => { … }); // cue = { event, phase, phaseIndex, at }
+
+// src/main.ts — 유물이 발동하면 HUD의 유물 아이콘이 같은 순간에 반짝
+renderer.onCue((cue, late) => {
+  if (!late && cue.event.type === 'trigger' && isRelicId(cue.event.source)) {
+    screen.ui.pulseRelic(cue.event.source);
+  }
+});
+```
+
+보드의 기본 효과(발동 펄스, 봉쇄 줄 섬광, 파괴 고리)도 같은 훅에 붙은 구독자 하나일 뿐입니다(`cueEffect`). 5단계의 파티클·흔들림·효과음은 구독자를 더하는 것으로 끝납니다.
+
+레이아웃은 CSS **컨테이너 쿼리 단위**로 보드를 정사각형으로 맞춥니다. 세로 화면에서 HUD 줄들이 자기 높이를 차지하고, 남은 공간(`flex: 1`)에서 보드가 `min(가로, 세로)`가 됩니다.
+
+```css
+.board-area {
+  flex: 1;
+  min-height: 0;
+  container-type: size;
+  display: grid;
+  place-items: center;
+}
+.board {
+  width: min(100cqw, 100cqh);
+  aspect-ratio: 1;
+}
+```
+
+가로로 눕힌 휴대폰에서는 같은 요소들을 그리드 영역으로 재배치해 HUD를 왼쪽 열에 둡니다(HTML은 그대로).
+
+#### 연습 과제
+
+1. `cueEffect`에 `merge` 이벤트용 효과(값이 128 이상이면 큰 고리)를 추가해 보세요. 렌더러 본체는 고치지 않아도 됩니다.
+2. `?debug&mode=run&stage=3`으로 열고 봉쇄가 걸릴 때 `__neonRift.advance(50)`을 반복해 보세요. 빗금이 언제 나타나는지(턴 애니메이션 뒤) 확인합니다.
+3. 개발자 도구에서 컨테이너 쿼리를 지원하지 않는 브라우저를 흉내 낼 수는 없습니다. 대신 `100cqw`가 무시되면 어떻게 보일지 예상하고, `aspect-ratio`만으로 대체하는 규칙을 써 보세요.
+
+---
+
+### 5.4 대상 지정과 모달 입력 모드
+
+#### 왜 필요한가
+
+분해 펄스(폭탄)와 정지 핀은 "어느 타일에?"가 필요합니다. 버튼을 누르는 순간 바로 쓰는 게 아니라 **입력의 의미가 바뀌는 모드**에 들어갑니다. 이때 보드를 탭하면 "칸 고르기"이고, 스와이프는 무시되며, 취소할 길이 늘 보여야 합니다. 모드가 명시적이지 않으면 "고르려고 살짝 끌었는데 보드가 움직였다" 같은 사고가 납니다.
+
+#### 어디에 쓰였나
+
+- `src/game/runController.ts` — `activateRelic`, `handleCellTap`, `cancelTargeting`, `back`
+- `src/input/index.ts`, `src/input/swipe.ts` — 탭 판정(`isTap`: 임계값 절반 안에서 떼고 스와이프가 없었음), Esc
+- `src/render/layout.ts` — `cellAtPoint`(화면 좌표 → 칸; 칸 사이 간격은 가까운 칸 몫)
+- `src/render/marks.ts` — 고를 수 있는 칸만 점선, 나머지는 어둡게
+
+#### 핵심 코드
+
+```ts
+// src/game/runController.ts
+activateRelic(id: RelicId): boolean {
+  if (this.screen === 'targeting') {
+    const same = this.targeting === id;
+    this.cancelTargeting();
+    if (same) return true; // 같은 버튼을 다시 누르면 취소
+  }
+  if (this.screen !== 'playing') return false;
+  const active = RELICS[id].active;
+  if (active?.target === 'none') return this.useActiveAt(id); // 되돌리기는 즉시
+  this.targeting = id; // 폭탄·핀은 대상 지정 모드로
+  this.options.board.setMarks(boardMarks(this.state, id));
+  this.setScreen({ kind: 'targeting', relic: id, prompt: targetingPrompt(id), error: null });
+  return true;
+}
+
+handleCellTap(pos: Position): boolean {
+  if (this.screen !== 'targeting' || !this.state || !this.targeting) return false;
+  if (!canUseActive(this.state, this.targeting, pos)) {
+    // 모드는 유지하고 이유를 알려 준다: "빈 칸이에요…", "돌은 얼릴 수 없어요"
+    …
+  }
+  …
+}
+```
+
+판정은 코어의 `canUseActive` 하나에 맡깁니다. 화면이 고를 수 있는 칸을 표시할 때도 같은 규칙(`targetCells`)을 써서 "점선이 있는데 안 눌림"이 생기지 않습니다.
+
+막힌 보드에서 구조 수단이 남아 있으면(D32) 코어는 상태를 `playing`으로 둡니다. 화면은 `runDirections(run)`이 비어 있는 것을 보고 "움직일 수 없어요 · 유물을 사용하세요"를 유물 줄 자리에 띄웁니다(`HudModel.stuck`).
+
+#### 연습 과제
+
+1. 대상 지정 중 스와이프를 "취소 + 이동"으로 바꾸면 어떤 장단점이 있을까요? `handleDirection` 한 줄을 바꿔 직접 해 보세요.
+2. 정지 핀의 고를 수 있는 칸에서 "이미 얼어 있는 타일"을 빼야 할까요? `targetCells`와 코어의 `canUseActive` 중 어디를 고쳐야 둘이 어긋나지 않나요?
+3. `cellAtPoint` 테스트(`tests/render-math.test.ts`)에 "보드 모서리 패딩을 누르면 가장 가까운 칸" 규칙을 추가하고 구현해 보세요.
+
+---
+
+### 5.5 계산할 수 있는 정보는 화면에
+
+#### 왜 필요한가
+
+4.6장에서 "플레이어가 계산할 수 있는 정보는 보여 준다"를 코어 쪽에서 준비했습니다(`turnsUntil`, `bossPreview`). 이 단계는 그걸 실제로 보여 주는 단계입니다. 원칙은 **숫자는 HUD에, 위치는 보드에** 입니다.
+
+- 보스 줄: 이름 · 다음 발동 미리보기 · **발동까지 N턴**(1턴 남으면 깜빡임) · 규칙 한 줄
+- 부식자: HUD에 "다음 발동: 64 → 32", 보드의 그 타일에 주황 괄호와 남은 턴. 타일이 미끄러지면 괄호도 따라갑니다(`BoardView.tilePosition`).
+- 봉쇄자: 어느 줄이 걸릴지는 난수라 미리 보여 주지 않고("무작위 한 줄 봉쇄"), 걸린 뒤에는 빗금 띠와 남은 턴을 보드와 HUD 양쪽에 보여 줍니다.
+- 얼음: 남은 고정 턴 배지, 저주: "½" 배지. 목표: 현재/목표 숫자와 막대, 남은 이동(적으면 빨갛게).
+
+처음 보는 방해 타일과 보스는 **한 줄 안내**로 알려 줍니다(외부 자료 조사 노트의 "튜토리얼을 게임에 녹여라"). 한 번 본 안내는 다시 나오지 않고, 여러 개면 대기열로 하나씩, 이동을 몇 번 하면 스스로 닫힙니다.
+
+#### 어디에 쓰였나
+
+- `src/game/runView.ts` — `bossInfo`, `hudModel`, `boardMarks`, `stageStartHints`, `hazardsInEvents`, `stageBanner`
+- `src/render/marks.ts` — 봉쇄 띠, 부식자 괄호
+- `src/render/tilePainter.ts` — 얼음 판(서리 + 결정 + 턴 배지), 저주(지그재그 테두리 + ½)
+- 브라우저 검사: 저장소 밖의 일회용 Playwright 스크립트 (5.6장)
+
+#### 핵심 코드
+
+```ts
+// src/game/runView.ts
+case 'halve': {
+  const tile = run.board.cells.find((t) => t?.id === preview.tileId);
+  text = tile ? `다음 발동: ${tile.value} → ${tile.value / 2}` : '다음 발동: 깎을 타일 없음';
+  break;
+}
+```
+
+```ts
+// 안내: 무한 모드처럼 시간이 지나며 방해가 섞여 들어오면 이벤트에서 "처음 등장"을 찾는다
+export function hazardsInEvents(events: readonly TurnEvent[]): HazardKind[] {
+  …
+  if (e.type === 'spawn' && e.kind === 'stone') out.add('stone');
+  else if (e.type === 'statusChange' && e.cause === 'ice') out.add('ice');
+  …
+}
+```
+
+외형도 정보입니다. 방해 타일은 색만이 아니라 **형태**로 구분됩니다(색각 이상 대응 겸). 숫자 타일은 모서리를 깎은 "칩", 돌은 빛나지 않는 울퉁불퉁한 파편, 얼음은 서리 낀 판, 저주는 지그재그 테두리입니다. 게임 전체의 모티프는 "회로 기판 아래로 갈라진 균열"이라, 보드 바닥에는 칸 사이로 회로선과 주황색 균열이 비칩니다.
+
+#### 연습 과제
+
+1. 혼돈(3막 보스)의 미리보기에 "섞인 뒤 돌이 놓일 수 있는 빈 칸 수"를 더해 보세요(4.6장 연습 1의 실전판). 계산 가능한 정보인지 다시 생각해 보세요.
+2. 남은 이동 경고 기준을 "남은 이동 < 목표까지 필요한 최소 이동 추정"으로 바꾸면 더 유용할까요? 점수 목표에서 그 추정을 어떻게 할 수 있을까요?
+3. 안내가 이동 3번 뒤 자동으로 닫히는 것(`HINT_MOVES`)이 너무 빠른지, 직접 플레이해 보며 판단해 보세요.
+
+---
+
+### 5.6 실제 브라우저로 흐름 검사하기
+
+#### 왜 필요한가
+
+단위 테스트는 컨트롤러와 프레젠터를 확인하지만 "카드가 화면 밖으로 잘림", "버튼이 44px보다 작음", "안내가 맨 윗줄 타일을 가림"은 실제 브라우저에서만 보입니다.
+
+#### 어디에 쓰였나
+
+- `src/game/debug.ts` — `?mode=run|endless`, `?stage=<0부터>`, `?relics=a,b` 시작 옵션과 확장된 `window.__neonRift`
+- 검사 스크립트는 저장소 밖 스크래치 폴더에 둡니다(사전 설치된 Playwright 사용, 의존성 추가 없음)
+
+#### 핵심 코드
+
+```js
+// 주소: .../2048-project/?debug&mode=run&stage=3&relics=bomb,undo&seed=11
+__neonRift.hud(); // HUD 모델: { stageLabel: '1막 보스', boss: { turnsUntil: 5, … }, … }
+__neonRift.screen(); // { kind: 'playing' } / { kind: 'offer', cards: [...] } …
+__neonRift.move('down');
+__neonRift.activate('bomb'); // 버튼 누르기와 같음 → 대상 지정
+__neonRift.cellPoint(3, 1); // 그 칸 중심의 화면 좌표 → 진짜 터치로 탭
+__neonRift.useActive('bomb', { row: 3, col: 1 }); // 대상 지정을 건너뛰고 바로 사용
+__neonRift.chooseRelic('chain');
+__neonRift.load({ ...__neonRift.run(), board: 꾸민보드 }); // 정확한 상황 만들기
+```
+
+검사 스크립트는 각 화면에서 **배치 감사**를 합니다. 페이지 스크롤이 없는지, 보이는 모든 요소가 화면 안에 있는지, 모든 버튼이 44px 이상인지, 말줄임으로 잘린 핵심 글자가 없는지를 320×568부터 데스크톱, 가로 휴대폰까지 7개 크기에서 확인합니다. 스크린샷은 비교용이 아니라 **사람(또는 리뷰어)이 직접 보는 증거**입니다. 이번 단계에서 스크린샷을 보고 고친 것: 대상 지정 막대가 맨 아랫줄을 가림, 봉쇄 배지가 보드 밖으로 잘림, 안내와 스테이지 배너가 겹침, 유물이 많을 때 칩이 반쯤 잘려 보임(→ 한 줄만 보이고 "유물 +N").
+
+#### 연습 과제
+
+1. `?debug&mode=endless&relics=bomb,undo,freezePin`으로 열어 사용 유물 세 개가 한 줄에 들어가는지 320px 폭에서 확인해 보세요.
+2. 배치 감사에 "글자와 배경의 명도 대비 4.5:1 이상" 검사를 추가하려면 무엇을 계산해야 할까요?
+3. 에이전트 플레이테스트를 상상해 보세요: `hud()`와 `screen()`만 보고 다음 수를 고르는 봇을 브라우저에서 돌린다면, 지금 API에 무엇이 더 필요할까요?
+
+---
+
+## 6. 설계 결정 기록
 
 각 결정은 "무엇을 / 왜 / 대가(포기한 것)" 순서로 적습니다.
 
@@ -1794,7 +2190,7 @@ function releaseLockIfStuck(run: RunState) {
 ### D18. 최고 기록은 아직 메모리에만
 
 - **왜**: 저장은 4단계 범위입니다. 컨트롤러에 `initialBest`와 `onBestChange`를 미리 열어 두어, 4단계에서는 저장 모듈을 연결하기만 하면 됩니다.
-- **대가**: 지금은 새로고침하면 최고 기록이 사라집니다.
+- **대가**: 지금은 새로고침하면 최고 기록이 사라집니다. 3b단계에서도 같습니다(D46: `initialRecords`/`onRecordsChange`).
 
 ### D19. 글로우는 타일 모습별로 미리 그려 캐시 (`TileSpriteCache`)
 
@@ -1841,6 +2237,7 @@ function releaseLockIfStuck(run: RunState) {
 
 - **왜**: "합체가 일어난 곳"을 결과 칸 하나로 정의하면 판정이 명확하고 화면으로 설명하기 쉽습니다. 대각선은 유물(균열 송곳)의 몫으로 남겨 두어 유물이 바꿀 "공통 숫자"를 만들었습니다.
 - **대가**: 미끄러지는 동안 지나간 칸은 세지 않습니다. 플레이어가 "지나가면서 부서질 것"이라고 기대할 수 있어, 3b단계에서 돌의 규칙 안내가 필요합니다.
+- **결과(3b단계)**: 돌이 처음 나오는 1막 2에서 "바로 옆에서 합체가 일어나면 부서진다"는 한 줄 안내를 띄웁니다(D45).
 
 ### D28. 유물 훅은 데이터를 돌려주고, 효과는 엔진이 적용한다. 유물 상태는 `{ id, charges, counter }` 하나로
 
@@ -1865,7 +2262,8 @@ function releaseLockIfStuck(run: RunState) {
 ### D32. 막힌 보드는 구조 수단(폭탄 충전, 쓸 수 있는 되돌리기)이 남아 있으면 실패로 보지 않는다
 
 - **왜**: 폭탄을 들고 있는데 "움직일 수 없음, 실패"가 뜨면 억울합니다. 실패 판정을 미루고 상태를 `playing`으로 두면, 화면은 `runDirections(run)`이 비어 있는 것을 보고 "유물을 쓰세요"를 안내할 수 있습니다. 모든 행동 뒤에 같은 판정이 다시 돌므로, 구조 수단을 다 쓰고도 막혀 있으면 그때 실패합니다.
-- **대가**: 화면이 "이동 불가지만 아직 진행 중" 상태를 처리해야 합니다(3b단계).
+- **대가**: 화면이 "이동 불가지만 아직 진행 중" 상태를 처리해야 합니다.
+- **결과(3b단계)**: `HudModel.stuck`이 참이면 유물 줄 자리에 "움직일 수 없어요 · 유물을 사용하세요"를 띄웁니다(5.4장).
 
 ### D33. 연쇄 반응은 "방금 생긴 타일이 낀 합체"만, 최대 2번 더
 
@@ -1892,18 +2290,78 @@ function releaseLockIfStuck(run: RunState) {
 - **왜**: 다른 게임의 용어·이름을 빌리지 않는다는 원칙(외부 자료 조사 노트) 때문입니다. "어떤 수와도 합쳐지는 타일"은 빛을 나누는 프리즘으로, 유물 이름은 네온·회로 분위기에 맞게 지었습니다. 코드 식별자(`prism`, `prismCore`)도 같은 이름을 씁니다.
 - **대가**: 계획서의 가칭(와일드 타일, 구석의 왕, 여분의 시간…)과 이름이 다르므로, 이 문서의 4.5장 표가 기준입니다.
 
+### D38. 화면 상태는 런 상태에서 유도하고, 화면만의 상태(메뉴·정지·대상 지정)만 컨트롤러가 더 가진다
+
+- **왜**: 런의 진행(진행 중/유물 선택/승리/실패)은 이미 코어의 `run.status`에 있습니다. 컨트롤러가 그걸 따로 들고 있으면 두 값이 어긋날 수 있으므로, 매 행동 뒤 `screenFor(run)`으로 다시 계산합니다. 코어가 몰라도 되는 것(메뉴, 일시정지, 어느 유물로 대상을 고르는 중인지)만 컨트롤러 상태입니다.
+- **대가**: 일시정지 같은 화면 상태는 저장되지 않습니다. 4단계에서 "진행 중인 런 저장"을 붙이면 다시 열었을 때 항상 진행 화면(또는 유물 선택)에서 시작합니다.
+
+### D39. 프레젠터(`runView.ts`)는 순수 함수이고, 화면의 한국어 문구는 거기에 모은다
+
+- **왜**: "1막 보스", "다음 발동: 64 → 32", "이동 횟수를 모두 썼어요" 같은 문구와 숫자 가공은 DOM 없이 테스트할 수 있어야 합니다. DOM 코드는 모델을 받아 `textContent`에 넣기만 하므로 거의 실수할 곳이 없습니다.
+- **대가**: 파일이 하나 늘고, 모델 타입(`HudModel`, `ScreenModel`…)을 바꾸면 프레젠터·DOM·테스트 세 곳을 함께 고쳐야 합니다. 대신 컴파일러가 빠진 곳을 알려 줍니다.
+
+### D40. 칸에 묶인 정보는 캔버스, 읽거나 누르는 것은 DOM. 보드를 오래 가리는 DOM은 두지 않는다
+
+- **왜**: 봉쇄된 줄이나 부식자의 대상은 타일과 함께 움직이고 같은 좌표계를 써야 하므로 캔버스가 맞습니다. 글자·버튼·카드는 줄바꿈, 포커스, 터치 크기, 접근성을 브라우저가 해 주는 DOM이 맞습니다. 대상 지정 막대와 "움직일 수 없어요"는 처음에 보드 아래쪽에 겹쳐 두었다가 맨 아랫줄 타일을 가려서 유물 줄 자리로 옮겼고, 대상 지정 중에는 위쪽 안내도 숨깁니다.
+- **대가**: 같은 정보가 두 곳에 나오기도 합니다(봉쇄 남은 턴: 보드 배지 + 보스 줄 문장). 의도된 중복입니다.
+
+### D41. 보드 표시는 그 턴의 애니메이션이 끝난 뒤 바뀐다. 대상 지정 표시는 즉시
+
+- **왜**: 원인(미끄러짐·보스 발동)이 화면에 나오기 전에 결과(빗금 띠)가 먼저 보이면 인과가 뒤집힙니다. HUD 숫자는 즉시 바뀌어도 어색하지 않지만 보드 위의 표시는 타일과 함께 읽히기 때문입니다.
+- **대가**: 이동 직후 수백 ms 동안 HUD("1턴 남음")와 보드 배지("2")가 다를 수 있습니다. 빨리 연타하면 보입니다. 큐 시각에 맞춰 HUD를 갱신하는 것은 5단계 연출과 함께 검토합니다.
+
+### D42. 연출 연결 지점은 "이벤트 큐"(`onCue`): 이벤트 애니메이션이 시작되는 순간 알린다
+
+- **왜**: 5단계의 파티클·흔들림·효과음은 타일 움직임과 정확히 같은 순간에 나와야 합니다. 뷰 모델이 이미 단계별 시작 시각을 계산하므로 그 시각을 이벤트와 함께 돌려주고(`EventCue`), 렌더러는 그 시각에 구독자를 부릅니다. 빨리 감기로 건너뛴 이벤트는 `late: true`로 즉시 알려, 소리는 낼지 효과는 생략할지 구독자가 고릅니다. 이번 단계의 기본 효과와 HUD 유물 아이콘 반짝임도 이 훅의 구독자입니다.
+- **대가**: 알림은 프레임 단위라 최대 한 프레임(약 16ms) 늦습니다. 시각(`cue.at`)은 정확하므로 오디오는 그 값으로 예약할 수 있습니다.
+
+### D43. 대상 지정은 명시적 모드: 스와이프는 무시, 탭만 칸 선택, 취소는 버튼·같은 유물 다시 누르기·Esc
+
+- **왜**: 칸을 고르려고 살짝 끌다가 보드가 움직이는 사고를 막습니다. 탭은 "임계값 절반 안에서 떼고 스와이프가 없었음"으로 판정합니다. 틀린 칸을 누르면 모드를 유지하고 이유를 적어 줍니다. 고를 수 있는 칸 표시와 실제 판정이 같은 규칙(`canUseActive` ↔ `targetCells`)을 따릅니다.
+- **대가**: 대상 지정 중에 마음이 바뀌어 그냥 밀고 싶으면 한 번 취소해야 합니다.
+
+### D44. 유물 줄은 한 줄만, 넘치면 "유물 +N". 전체 목록은 일시정지 화면에
+
+- **왜**: 런 끝에는 유물이 10개를 넘습니다. 44px 터치 칩을 320px 폭에 다 넣을 수 없고, 가로 스크롤은 화면 전체가 스와이프 면이라 충돌합니다. 첫 줄에 들어가는 칩만 보이고, 나머지 개수를 버튼에 적어 일시정지(전체 목록)로 안내합니다. 사용 유물은 따로 큰 버튼 줄을 씁니다.
+- **대가**: 유물이 많으면 일부 패시브는 한 번 더 눌러야 설명을 봅니다.
+
+### D45. 안내는 한 번씩, 대기열로 하나씩, 이동 몇 번 뒤 자동으로 닫힘. 스테이지 배너가 사라진 뒤 나타난다
+
+- **왜**: 1막이 튜토리얼 역할(외부 자료 조사 노트)을 하므로 새 요소는 처음 나올 때 한 줄만 알려 줍니다. 플레이어가 그냥 계속 밀면 이미 읽은 것으로 보고 닫습니다. 배너와 안내가 동시에 보드 위에 뜨면 읽을 수 없어서 안내를 배너 뒤로 미룹니다.
+- **대가**: 본 안내 목록은 아직 메모리에만 있어 새로고침하면 다시 나옵니다. 4단계에서 `seenHints`/`onHintSeen`에 저장을 연결합니다.
+
+### D46. 기록은 메모리에만, 첫 판은 "새 최고 기록"이라 부르지 않는다
+
+- **왜**: 저장은 4단계 범위입니다(`initialRecords`/`onRecordsChange`로 연결 지점만 열어 둠). 기록이 0일 때는 어떤 판이든 "새 기록"이 되어 의미가 없으므로, 이전 기록이 있을 때만 축하합니다.
+- **대가**: 지금은 새로고침하면 기록이 사라집니다(D18과 같음).
+
+### D47. 시각 정체성: 깎인 모서리의 "칩" 타일, 회로 기판 보드, 그 아래 주황 균열. 방해는 모티프를 깨는 형태로
+
+- **왜**: 외부 자료 조사 노트에서 같은 장르의 상용작이 어두운 사이버펑크 외형이라 겹쳐 보일 위험을 지적했습니다. 그래서 둥근 네온 사각형 대신 이 게임만의 모양(모서리를 깎은 칩, 칸 사이 회로선, 보드 밑 균열)과 주황(균열)·청록(회로) 강조색을 정했습니다. 돌(빛 없는 파편), 얼음(서리 판), 저주(지그재그 테두리)는 칩 모양을 일부러 깨서 한눈에 "이상한 것"으로 읽히고, 색각 이상이어도 형태로 구분됩니다.
+- **대가**: 패널·버튼 일부(`clip-path`)와 타일 그림이 같은 모서리 깎기 값을 공유해야 해서, 모티프를 바꾸면 CSS와 `tilePainter.ts`를 함께 고쳐야 합니다.
+
+### D48. 2단계의 "그냥 2048" 모드와 `GameController`는 없앴다
+
+- **왜**: 무한 모드가 "큰 판을 키우는" 역할을 맡고, 같은 화면에 두 종류의 컨트롤러를 유지할 이유가 없었습니다. `RunController`가 같은 원리(상태를 들고, 코어를 부르고, 인터페이스로 나눠 줌)를 이어받았습니다.
+- **대가**: 3.7장의 코드 발췌는 2단계 당시 모습으로 남겨 두고, 지금 코드는 5.1~5.2장에서 설명합니다.
+
+### D49. 코어에 추가한 것은 `restoreStep(run)` 하나
+
+- **왜**: 저장된 런 이어 하기(4단계)와 테스트의 "정확한 보드 꾸미기"(`controller.load`)는 "아무것도 바꾸지 않고 이 런의 보드를 빈 화면에 다시 그리는 단계"가 필요했습니다. 되돌리기가 이미 쓰던 내부 함수(`rebuildEvents`)를 공개 함수로 감쌌을 뿐이라 규칙은 늘지 않았습니다.
+- **대가**: 없음. 테스트(`restoreStep` 재생 결과 == 코어 보드)가 하나 늘었습니다.
+
 ---
 
 ## 부록: 자주 쓰는 명령어
 
-| 명령                 | 하는 일                                                                                           |
-| -------------------- | ------------------------------------------------------------------------------------------------- |
-| `npm install`        | 의존성 설치                                                                                       |
-| `npm run dev`        | 개발 서버 (저장하면 즉시 반영)                                                                    |
-| `npm run test`       | 테스트 한 번 실행                                                                                 |
-| `npm run test:watch` | 파일이 바뀔 때마다 테스트 다시 실행                                                               |
-| `npm run lint`       | ESLint 검사                                                                                       |
-| `npm run format`     | Prettier로 전체 코드 정리                                                                         |
-| `npm run build`      | 타입 검사 + 배포용 빌드 (`dist/`)                                                                 |
-| `npm run preview`    | 빌드 결과를 로컬에서 미리 보기 (`http://localhost:4173/2048-project/`, 디버그는 `?debug&seed=42`) |
-| `npm run sim`        | 밸런스 봇 시뮬레이터 (기본 300런/봇, `npm run sim -- --runs 1000`으로 늘리기)                     |
+| 명령                 | 하는 일                                                                                                    |
+| -------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `npm install`        | 의존성 설치                                                                                                |
+| `npm run dev`        | 개발 서버 (저장하면 즉시 반영)                                                                             |
+| `npm run test`       | 테스트 한 번 실행                                                                                          |
+| `npm run test:watch` | 파일이 바뀔 때마다 테스트 다시 실행                                                                        |
+| `npm run lint`       | ESLint 검사                                                                                                |
+| `npm run format`     | Prettier로 전체 코드 정리                                                                                  |
+| `npm run build`      | 타입 검사 + 배포용 빌드 (`dist/`)                                                                          |
+| `npm run preview`    | 빌드 결과를 로컬에서 미리 보기 (`http://localhost:4173/2048-project/`, 디버그는 `?debug&seed=42&mode=run`) |
+| `npm run sim`        | 밸런스 봇 시뮬레이터 (기본 300런/봇, `npm run sim -- --runs 1000`으로 늘리기)                              |

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   clamp,
   computeLayout,
+  cellAtPoint,
   cellOrigin,
   easeInOutCubic,
   easeOutBack,
@@ -111,5 +112,28 @@ describe('theme', () => {
       expect(c.accent).toMatch(/^#[0-9a-f]{6}$/);
     }
     expect(numberTileColors(2).accent).not.toBe(numberTileColors(4).accent);
+  });
+});
+
+describe('cellAtPoint', () => {
+  it('maps board points to cells, gaps split between neighbours, outside → null', () => {
+    const l = computeLayout(400, 4);
+    const step = l.cell + l.gap;
+    const center = (row: number, col: number) => ({
+      x: l.padding + col * step + l.cell / 2,
+      y: l.padding + row * step + l.cell / 2,
+    });
+    for (let row = 0; row < 4; row++) {
+      for (let col = 0; col < 4; col++) {
+        const c = center(row, col);
+        expect(cellAtPoint(l, c.x, c.y)).toEqual({ row, col });
+      }
+    }
+    // Just right of the middle of the gap between columns 0 and 1 belongs to column 1.
+    const gapMid = l.padding + l.cell + l.gap / 2;
+    expect(cellAtPoint(l, gapMid + 0.5, center(0, 0).y)).toEqual({ row: 0, col: 1 });
+    expect(cellAtPoint(l, gapMid - 0.5, center(0, 0).y)).toEqual({ row: 0, col: 0 });
+    expect(cellAtPoint(l, -5, 10)).toBeNull();
+    expect(cellAtPoint(l, 10, 405)).toBeNull();
   });
 });

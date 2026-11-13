@@ -7,6 +7,7 @@ import {
   chooseRelic,
   createBossState,
   currentStage,
+  restoreStep,
   endlessHazards,
   movesLeft,
   runDirections,
@@ -288,5 +289,24 @@ describe('phases', () => {
     }
     expect(checked).toBeGreaterThan(100);
     expect([...seen].sort()).toEqual([...ORDER].sort());
+  });
+});
+
+describe('restoreStep', () => {
+  it('rebuilds the board (statuses included) in an empty view without changing the run', () => {
+    let run = startRun('run', 'restore', { stageIndex: 2 }).run;
+    run = withBoard(run, [
+      [2, { kind: 'stone' }, E, E],
+      [E, { value: 8, frozen: 2 }, E, E],
+      [E, E, { value: 4, cursed: true }, E],
+      empty(),
+    ]);
+    const step = restoreStep(run);
+    expect(step.run).toBe(run);
+    expect(step.boardReplaced).toBe(true);
+    const fail = (m: string): void => {
+      throw new Error(m);
+    };
+    expect(replayPhases(new Map(), step.phases, fail)).toEqual(snapshotTiles(run.board));
   });
 });
