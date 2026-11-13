@@ -1,0 +1,355 @@
+/* Page chrome for the dark neon look. Board / tile colours are drawn in
+   src/render/theme.ts; keep the two palettes in step. */
+
+:root {
+  --bg: #0a0a12;
+  --panel: #13132a;
+  --panel-edge: rgba(130, 120, 255, 0.35);
+  --text: #e8e8ff;
+  --muted: #8f8fb8;
+  --cyan: #2de2e6;
+  --pink: #ff3cac;
+  --violet: #8b5cf6;
+  --gutter: 16px;
+  /* Vertical space reserved for HUD + hint + gaps around the square board. */
+  --chrome-height: 250px;
+  --max-board: 520px;
+  color-scheme: dark;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  /* No pull-to-refresh / scroll chaining. */
+  overscroll-behavior: none;
+  background: var(--bg);
+  color: var(--text);
+  font-family:
+    system-ui,
+    -apple-system,
+    'Apple SD Gothic Neo',
+    'Noto Sans KR',
+    sans-serif;
+}
+
+body {
+  /* Pins the page so iOS Safari cannot rubber-band it. */
+  position: fixed;
+  inset: 0;
+}
+
+#app {
+  height: 100%;
+}
+
+.game {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: max(var(--gutter), env(safe-area-inset-top))
+    max(var(--gutter), env(safe-area-inset-right)) max(var(--gutter), env(safe-area-inset-bottom))
+    max(var(--gutter), env(safe-area-inset-left));
+  /* The whole screen is a swipe surface: no browser panning, zooming or selection. */
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+  background:
+    radial-gradient(ellipse at 50% 0%, rgba(139, 92, 246, 0.16), transparent 60%),
+    radial-gradient(ellipse at 50% 100%, rgba(45, 226, 230, 0.08), transparent 55%);
+}
+
+/* The column is as wide as the board: fits the width on phones, limited by the
+   height on short / landscape screens, capped on tablets and desktops. */
+.column {
+  width: min(100%, var(--max-board), calc(100vh - var(--chrome-height)));
+  width: min(100%, var(--max-board), calc(100dvh - var(--chrome-height)));
+  min-width: 240px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+/* ---- HUD ---- */
+
+.hud {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.hud-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.logo {
+  margin: 0;
+  font-size: 28px;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  line-height: 1;
+  color: var(--cyan);
+  text-shadow:
+    0 0 6px rgba(45, 226, 230, 0.8),
+    0 0 18px rgba(45, 226, 230, 0.45);
+}
+
+.logo span {
+  margin-left: 0.25em;
+  color: var(--pink);
+  text-shadow:
+    0 0 6px rgba(255, 60, 172, 0.8),
+    0 0 18px rgba(255, 60, 172, 0.45);
+}
+
+.scores {
+  align-items: stretch;
+}
+
+.score-box {
+  position: relative;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 6px 8px 8px;
+  border-radius: 12px;
+  background: var(--panel);
+  border: 1px solid var(--panel-edge);
+  box-shadow: inset 0 0 12px rgba(110, 90, 255, 0.12);
+}
+
+.score-label {
+  font-size: 12px;
+  color: var(--muted);
+  letter-spacing: 0.04em;
+}
+
+.score-value {
+  font-size: 22px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.score-gains {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.score-gain {
+  /* Rises beside the number, clear of the label and the value itself. */
+  position: absolute;
+  right: 10px;
+  bottom: 8px;
+  font-weight: 800;
+  font-size: 16px;
+  color: var(--cyan);
+  text-shadow: 0 0 8px rgba(45, 226, 230, 0.9);
+  animation: score-gain 650ms ease-out forwards;
+}
+
+@keyframes score-gain {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-24px);
+  }
+}
+
+/* ---- Buttons ---- */
+
+.btn {
+  min-height: 44px;
+  padding: 0 18px;
+  border-radius: 999px;
+  border: 1.5px solid var(--cyan);
+  background: rgba(45, 226, 230, 0.08);
+  color: var(--text);
+  font: inherit;
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 0 10px rgba(45, 226, 230, 0.35);
+  touch-action: manipulation;
+  transition:
+    transform 80ms ease-out,
+    box-shadow 120ms ease-out;
+}
+
+.btn:hover {
+  box-shadow: 0 0 16px rgba(45, 226, 230, 0.6);
+}
+
+.btn:active {
+  transform: scale(0.96);
+}
+
+.btn:focus-visible {
+  outline: 2px solid var(--text);
+  outline-offset: 3px;
+}
+
+.btn-primary {
+  border-color: var(--pink);
+  background: rgba(255, 60, 172, 0.14);
+  box-shadow: 0 0 14px rgba(255, 60, 172, 0.5);
+}
+
+.btn-primary:hover {
+  box-shadow: 0 0 20px rgba(255, 60, 172, 0.75);
+}
+
+/* ---- Board ---- */
+
+.board {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1;
+  /* Matches BOARD_RADIUS_RATIO in src/render/renderer.ts. */
+  border-radius: 5%;
+  box-shadow:
+    0 0 28px rgba(110, 90, 255, 0.35),
+    0 0 2px rgba(130, 120, 255, 0.6);
+}
+
+.board-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  border-radius: 5%;
+  background: rgba(8, 8, 16, 0.78);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+  text-align: center;
+  /* Waits for the last move's animation before fading in. */
+  animation: overlay-in 300ms ease-out 350ms both;
+}
+
+.overlay[hidden],
+.overlay-best[hidden] {
+  display: none;
+}
+
+.overlay p {
+  margin: 0;
+}
+
+.overlay-title {
+  font-size: 34px;
+  font-weight: 900;
+  color: var(--pink);
+  text-shadow:
+    0 0 8px rgba(255, 60, 172, 0.85),
+    0 0 24px rgba(255, 60, 172, 0.5);
+}
+
+.overlay-score {
+  font-size: 18px;
+  color: var(--muted);
+}
+
+.overlay-score strong {
+  color: var(--text);
+  font-size: 22px;
+  font-variant-numeric: tabular-nums;
+}
+
+.overlay-best {
+  font-weight: 800;
+  color: #ffe74c;
+  text-shadow: 0 0 10px rgba(255, 231, 76, 0.7);
+}
+
+.overlay .btn {
+  margin-top: 8px;
+}
+
+@keyframes overlay-in {
+  from {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.hint {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--muted);
+  text-align: center;
+  word-break: keep-all;
+}
+
+/* Landscape phones: HUD beside the board so the board can use the full height. */
+@media (orientation: landscape) and (max-height: 540px) {
+  .column {
+    flex-direction: row;
+    align-items: center;
+    gap: 20px;
+    width: auto;
+  }
+  .hud {
+    width: 200px;
+  }
+  .hud-row:first-child {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .scores {
+    flex-direction: column;
+  }
+  .board {
+    flex: none;
+    width: min(
+      calc(100vh - 2 * var(--gutter) - env(safe-area-inset-top) - env(safe-area-inset-bottom)),
+      calc(100vw - 260px)
+    );
+    width: min(
+      calc(100dvh - 2 * var(--gutter) - env(safe-area-inset-top) - env(safe-area-inset-bottom)),
+      calc(100vw - 260px)
+    );
+  }
+  .hint {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .overlay {
+    animation-duration: 1ms;
+  }
+  .score-gain {
+    animation-duration: 1ms;
+  }
+}
