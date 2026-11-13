@@ -1,3 +1,5 @@
+import { NEON_LAYOUT, type LayoutStyle } from './theme';
+
 /**
  * Board geometry in CSS pixels. Pure: given the board's on-screen size and the
  * grid size it tells where every cell is. Positions may be fractional
@@ -16,17 +18,33 @@ export interface BoardLayout {
   readonly cell: number;
   /** Corner radius of a cell / tile. */
   readonly radius: number;
+  /** Corner radius of the board itself. */
+  readonly boardRadius: number;
 }
 
-/** Gap as a fraction of a cell; padding uses the same value so edges look even. */
-const GAP_RATIO = 0.12;
 const RADIUS_RATIO = 0.16;
 
-export function computeLayout(size: number, gridSize: number): BoardLayout {
-  // size = 2 * padding + gridSize * cell + (gridSize - 1) * gap, with padding = gap = r * cell
-  const cell = size / (gridSize + (gridSize + 1) * GAP_RATIO);
-  const gap = cell * GAP_RATIO;
-  return { size, gridSize, padding: gap, gap, cell, radius: cell * RADIUS_RATIO };
+/**
+ * The theme decides the proportions (`LayoutStyle`): neon keeps padding = gap
+ * so the edges look even; the storybook theme widens the padding into a
+ * decorated frame drawn inside the canvas.
+ */
+export function computeLayout(
+  size: number,
+  gridSize: number,
+  style: LayoutStyle = NEON_LAYOUT,
+): BoardLayout {
+  // size = 2 * padding + gridSize * cell + (gridSize - 1) * gap, with padding = p * cell, gap = g * cell
+  const cell = size / (gridSize + (gridSize - 1) * style.gap + 2 * style.padding);
+  return {
+    size,
+    gridSize,
+    padding: cell * style.padding,
+    gap: cell * style.gap,
+    cell,
+    radius: cell * RADIUS_RATIO,
+    boardRadius: size * style.boardRadius,
+  };
 }
 
 /** Top-left corner (CSS px) of the cell at a possibly fractional row / column. */

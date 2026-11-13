@@ -13,6 +13,7 @@ import { cellCenter, computeLayout, type BoardLayout } from './layout';
 import { ParticlePool, type BurstSpec } from './particles';
 import { TraumaShake } from './shake';
 import type { CanvasFactory } from './spriteCache';
+import { mixHex, type Theme } from './theme';
 import { easeOutCubic, easeOutQuad, easeOutSpring, clamp } from './tween';
 
 /** A burst described in cells; sizes and speeds are fractions of a cell. */
@@ -73,7 +74,10 @@ export class BoardFx {
   private nudgeX = 0;
   private nudgeY = 0;
   private nudgeAge = Infinity;
-  private readonly font: string;
+  private font: string;
+  private textOutline = 'rgba(6, 6, 16, 0.9)';
+  private ink = '#000000';
+  private textInk = 0;
   /** Multiplies every burst's particle count: frame budget × motion setting. */
   density = 1;
   /** Reduced motion: no shake, no nudge, texts fade in place. */
@@ -89,6 +93,15 @@ export class BoardFx {
     });
     this.font = options.fontFamily ?? 'system-ui, sans-serif';
     for (let i = 0; i < TEXT_SLOTS; i++) this.texts.push(blankText());
+  }
+
+  /** Takes the theme's particle style and text colours. */
+  applyTheme(theme: Theme): void {
+    this.font = theme.fontFamily;
+    this.textOutline = theme.textOutline;
+    this.ink = theme.ink;
+    this.textInk = theme.textInk;
+    this.particles.style = theme.particles;
   }
 
   setLayout(layout: BoardLayout): void {
@@ -225,10 +238,11 @@ export class BoardFx {
     const y = Math.max(size * 0.62, t.y - t.rise * easeOutQuad(p));
     ctx.globalAlpha = alpha;
     ctx.font = `800 ${size.toFixed(1)}px ${this.font}`;
-    ctx.strokeStyle = 'rgba(6, 6, 16, 0.9)';
+    ctx.strokeStyle = this.textOutline;
     ctx.lineWidth = Math.max(2, size * 0.22);
     ctx.strokeText(t.text, t.x, y);
-    ctx.fillStyle = t.color;
+    // On a bright page a pale accent would vanish: it is inked down towards dark.
+    ctx.fillStyle = this.textInk > 0 ? mixHex(t.color, this.ink, this.textInk) : t.color;
     ctx.fillText(t.text, t.x, y);
   }
 }

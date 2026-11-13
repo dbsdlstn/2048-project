@@ -3,9 +3,11 @@
  * per distinct look into the sprite cache (glow included), so the expensive
  * `shadowBlur` never runs per frame. Status overlays (ice, curse marks) are
  * drawn live on top of any kind. New kinds and statuses are added by
- * registering functions here, not by editing the renderer.
+ * registering functions in a theme's tables, not by editing the renderer.
+ * This file holds the shared types and helpers plus the neon theme's art;
+ * the storybook theme's art is in ./storybook/.
  *
- * Visual motif: tiles are circuit "chips" — squares with cut (chamfered)
+ * Neon motif: tiles are circuit "chips" — squares with cut (chamfered)
  * corners and a short printed trace — sitting in slots on a circuit board
  * with a glowing rift underneath. Hazards break the motif on purpose: a stone
  * is a rough, glowless shard; ice is a frosted pane; a curse is a glitched rim.
@@ -59,7 +61,7 @@ export interface OverlayContext {
 
 export type StatusOverlay = (d: OverlayContext) => void;
 
-type AnyContext2D = CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
+export type AnyContext2D = CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
 
 /** Adds a path for a rounded rectangle (own helper: `ctx.roundRect` is missing on older Safari). */
 export function roundRectPath(
@@ -239,9 +241,9 @@ const prismTileArt: TileArt = {
     const y = cy - cell / 2;
     ctx.save();
     chipPath(ctx, x, y, cell, cell, cell * CHIP_CUT);
-    ctx.shadowColor = d.theme.prism;
+    ctx.shadowColor = d.theme.wild;
     ctx.shadowBlur = 14 * pixelRatio;
-    ctx.fillStyle = d.theme.tileBase;
+    ctx.fillStyle = d.theme.tileBody;
     ctx.fill();
     ctx.shadowBlur = 0;
     const spectrum = ctx.createLinearGradient(x, y, x + cell, y + cell);
@@ -258,7 +260,7 @@ const prismTileArt: TileArt = {
     ctx.lineTo(cx, cy + k);
     ctx.lineTo(cx - k, cy);
     ctx.closePath();
-    ctx.fillStyle = d.theme.prism;
+    ctx.fillStyle = d.theme.wild;
     ctx.fill();
     // Facets.
     ctx.lineWidth = Math.max(1, cell * 0.02);
@@ -274,15 +276,15 @@ const prismTileArt: TileArt = {
   },
 };
 
-/** Art per tile kind. A new `TileKind` fails to compile until it gets art here. */
-export const TILE_ART: Record<TileKind, TileArt> = {
+/** Neon art per tile kind. A new `TileKind` fails to compile until every theme has art for it. */
+export const NEON_TILE_ART: Record<TileKind, TileArt> = {
   number: numberTileArt,
   stone: stoneTileArt,
   prism: prismTileArt,
 };
 
 /** A filled circular badge with a centred label. */
-function badge(
+export function badge(
   d: OverlayContext,
   bx: number,
   by: number,
@@ -380,5 +382,5 @@ const curseOverlay: StatusOverlay = (d) => {
   ctx.restore();
 };
 
-/** Drawn live over a tile of any kind, in order. */
-export const STATUS_OVERLAYS: StatusOverlay[] = [iceOverlay, curseOverlay];
+/** Neon status overlays, drawn live over a tile of any kind, in order. */
+export const NEON_OVERLAYS: readonly StatusOverlay[] = [iceOverlay, curseOverlay];

@@ -21,17 +21,11 @@ import { cueEffect, type Effect } from './effects';
 import { cellAtPoint, cellCenter, computeLayout, type BoardLayout } from './layout';
 import { BoardFx } from './fx';
 import { AnimationLoop } from './loop';
-import {
-  NO_MARKS,
-  marksAnimate,
-  paintBoardBackground,
-  paintMarksAbove,
-  paintMarksBelow,
-  type BoardMarks,
-} from './marks';
+import { NO_MARKS, marksAnimate, type BoardMarks } from './marks';
+import { NO_SCENERY, sceneryKey, type Scenery } from './scenery';
 import { TileSpriteCache, createDomCanvas, type CanvasFactory } from './spriteCache';
-import { NEON_THEME, type Theme } from './theme';
-import { STATUS_OVERLAYS } from './tilePainter';
+import type { Theme } from './theme';
+import { NEON_THEME } from './themes';
 import { BoardView, DEFAULT_TIMINGS, type AnimationTimings, type EventCue } from './viewModel';
 
 /**
@@ -43,6 +37,7 @@ import { BoardView, DEFAULT_TIMINGS, type AnimationTimings, type EventCue } from
 export type CueListener = (cue: EventCue, late: boolean) => void;
 
 export interface BoardRendererOptions {
+  /** The look: colours and painters (default neon). `setTheme` switches it later. */
   readonly theme?: Theme;
   readonly timings?: AnimationTimings;
   /** Time source and frame scheduler. Defaults to `performance.now` + `requestAnimationFrame`. */
@@ -94,7 +89,8 @@ export class BoardRenderer {
   private viewOffset = 0;
   private reducedMotion = false;
   private readonly ctx: CanvasRenderingContext2D;
-  private readonly theme: Theme;
+  private theme: Theme;
+  private scenery: Scenery = NO_SCENERY;
   private readonly effects: Effect[] = [];
   private readonly sprites: TileSpriteCache;
   private readonly loop: AnimationLoop;
@@ -107,6 +103,12 @@ export class BoardRenderer {
   /** Marks waiting for the current animation to end before they show (with the HUD update). */
   private pendingMarks: { marks: BoardMarks; at: number; onShown?: () => void } | null = null;
   private background: HTMLCanvasElement | OffscreenCanvas | null = null;
+  /** The background before an animated scenery change, wiped away top to bottom. */
+  private reveal: {
+    image: HTMLCanvasElement | OffscreenCanvas;
+    start: number;
+    duration: number;
+  } | null = null;
   private layout: BoardLayout;
   private pixelRatio = 1;
 
@@ -124,13 +126,14 @@ export class BoardRenderer {
     this.view = new BoardView(gridSize, options.timings ?? DEFAULT_TIMINGS);
     this.sprites = new TileSpriteCache({ theme: this.theme, createCanvas: this.createCanvas });
     this.loop = new AnimationLoop(this.clock, this.tick);
-    this.layout = computeLayout(1, gridSize);
+    this.layout = computeLayout(1, gridSize, this.theme.layout);
     this.perfNow = options.perfNow ?? (() => performance.now());
     this.fx = new BoardFx({
       createCanvas: this.createCanvas,
       fontFamily: this.theme.fontFamily,
       ...(options.random ? { random: options.random } : {}),
     });
+    this.fx.applyTheme(this.theme);
     if (options.builtInEffects ?? true) {
       this.listeners.add((cue, late) => {
         const effect = cueEffect(cue, this.theme, late);
@@ -180,6 +183,47 @@ export class BoardRenderer {
       this.pendingMarks = onShown ? { marks, at, onShown } : { marks, at };
     }
     this.loop.invalidate();
+  }
+
+  /**
+   * Switches the look: tile images, particle style, layout (the frame width
+   * may differ) and the cached background are all rebuilt.
+   */
+  setTheme(theme: Theme): void {
+    if (theme === this.theme) return;
+    this.theme = theme;
+    this.sprites.setTheme(theme);
+    this.fx.applyTheme(theme);
+    this.effects.length = 0;
+    this.resize();
+    this.loop.invalidate();
+  }
+
+  get currentTheme(): Theme {
+    return this.theme;
+  }
+
+  /**
+   * What the board frame shows (race companions, rallies). Redraws the cached
+   * background on change; with `revealMs` the old frame is wiped away from
+   * the top down, so new banners seem to unroll (none with reduced motion).
+   */
+  setScenery(scenery: Scenery, revealMs = 0): void {
+    if (sceneryKey(scenery) === sceneryKey(this.scenery)) return;
+    this.scenery = scenery;
+    const pixels = this.canvas.width;
+    if (pixels <= 0 || this.layout.size <= 1) return;
+    const old = this.background;
+    this.background = this.renderBackground(pixels);
+    this.reveal =
+      old && revealMs > 0 && !this.reducedMotion
+        ? { image: old, start: this.viewTimeNow(), duration: revealMs }
+        : null;
+    this.loop.invalidate();
+  }
+
+  get currentScenery(): Scenery {
+    return this.scenery;
   }
 
   /** Empties the board (no tiles, no marks, no effects). */
@@ -323,7 +367,8 @@ export class BoardRenderer {
       this.fx.active ||
       this.effects.length > 0 ||
       this.pendingCues.length > 0 ||
-      this.pendingMarks !== null
+      this.pendingMarks !== null ||
+      this.reveal !== null
     );
   }
 
@@ -435,7 +480,8 @@ export class BoardRenderer {
       this.fx.active ||
       this.effects.length > 0 ||
       this.pendingCues.length > 0 ||
-      this.pendingMarks !== null;
+      this.pendingMarks !== null ||
+      this.reveal !== null;
     if (dt > 0 && busy) {
       const i = this.statCount++ % STATS_FRAMES;
       this.statDt[i] = dt;
@@ -455,21 +501,25 @@ export class BoardRenderer {
       this.canvas.height = pixels;
     }
     this.pixelRatio = pixels / cssSize;
-    this.layout = computeLayout(cssSize, this.view.size);
+    this.layout = computeLayout(cssSize, this.view.size, this.theme.layout);
     this.fx.setLayout(this.layout);
     this.sprites.configure(this.layout.cell, this.layout.radius, this.pixelRatio);
     this.background = this.renderBackground(pixels);
+    this.reveal = null;
     // Draw synchronously: resizing clears the canvas, and waiting a frame would flash.
     this.draw(this.clock.now());
   }
 
-  /** The static board (plate, traces, rift, slots) is drawn once per size, like tile sprites. */
+  /**
+   * The static board (plate, slots, frame and its scenery) is drawn once per
+   * size / theme / scenery, like tile sprites.
+   */
   private renderBackground(pixels: number): HTMLCanvasElement | OffscreenCanvas | null {
     const canvas = this.createCanvas(pixels, pixels);
     const ctx = canvas.getContext('2d');
     if (!ctx) return null;
     ctx.setTransform(this.pixelRatio, 0, 0, this.pixelRatio, 0, 0);
-    paintBoardBackground(ctx, this.layout, this.theme, this.pixelRatio);
+    this.theme.boardArt.background(ctx, this.layout, this.theme, this.pixelRatio, this.scenery);
     return canvas;
   }
 
@@ -481,9 +531,20 @@ export class BoardRenderer {
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
     if (this.background) ctx.drawImage(this.background, 0, 0);
+    const reveal = this.reveal;
+    if (reveal) {
+      const t = (now - reveal.start) / reveal.duration;
+      if (t >= 1) this.reveal = null;
+      else {
+        // The old frame still covers everything below the wipe line.
+        const h = this.canvas.height;
+        const y = Math.round(h * Math.max(0, t) * (2 - Math.max(0, t)));
+        ctx.drawImage(reveal.image, 0, y, this.canvas.width, h - y, 0, y, this.canvas.width, h - y);
+      }
+    }
     // From here on, draw in CSS pixels; the transform maps them to device pixels.
     ctx.setTransform(pr, 0, 0, pr, 0, 0);
-    if (!this.background) paintBoardBackground(ctx, layout, theme, pr);
+    if (!this.background) theme.boardArt.background(ctx, layout, theme, pr, this.scenery);
 
     const camera = this.fx.offset();
     let shakeX = camera.x;
@@ -498,7 +559,7 @@ export class BoardRenderer {
 
     ctx.save();
     ctx.translate(shakeX, shakeY);
-    paintMarksBelow(ctx, layout, this.marks);
+    theme.boardArt.marksBelow(ctx, layout, this.marks, theme);
     for (const frame of this.view.frame(now)) {
       if (frame.scale <= 0) continue;
       const c = cellCenter(layout, frame.row, frame.col);
@@ -512,7 +573,7 @@ export class BoardRenderer {
       const w = sprite.cssSize * frame.scale * frame.sx;
       const h = sprite.cssSize * frame.scale * frame.sy;
       ctx.drawImage(sprite.image, c.x - w / 2, c.y - h / 2, w, h);
-      for (const overlay of STATUS_OVERLAYS) {
+      for (const overlay of theme.overlays) {
         overlay({
           ctx,
           cx: c.x,
@@ -525,7 +586,9 @@ export class BoardRenderer {
         });
       }
     }
-    paintMarksAbove(ctx, layout, this.marks, theme, now, (id) => this.view.tilePosition(id, now));
+    theme.boardArt.marksAbove(ctx, layout, this.marks, theme, now, (id) =>
+      this.view.tilePosition(id, now),
+    );
     for (const e of this.effects) e.draw?.(ctx, layout, now);
     this.fx.draw(ctx);
     ctx.restore();

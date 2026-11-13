@@ -5,11 +5,35 @@
  * Live particles are packed at the front ([0, count)); a dead one is replaced
  * by the last live one ("swap remove"), so the loops never skip holes.
  *
- * Drawing is additive (`lighter`): overlapping sparks brighten towards white,
- * which reads as neon light without any blur. Glow dots are one small
- * pre-rendered radial-gradient image per colour, copied with `drawImage`.
+ * How particles look is the theme's `ParticleStyle`. Neon draws additively
+ * (`lighter`): overlapping sparks brighten towards white, which reads as neon
+ * light without any blur. On a bright storybook page additive light washes
+ * out to nothing, so that style draws normally (`source-over`) with warm
+ * ember dots, gold flecks and tapered ink splashes. Glow dots are one small
+ * pre-rendered image per colour, copied with `drawImage`.
  */
 import type { CanvasFactory } from './spriteCache';
+import type { ParticleStyle } from './theme';
+
+type AnyContext2D = CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
+
+/** Neon: a white-hot core fading through the colour: light, meant for additive blending. */
+export const NEON_PARTICLES: ParticleStyle = {
+  blend: 'lighter',
+  glowSprite(g: AnyContext2D, css: string, px: number) {
+    const h = px / 2;
+    const grad = g.createRadialGradient(h, h, 0, h, h, h);
+    grad.addColorStop(0, '#ffffff');
+    grad.addColorStop(0.18, css);
+    grad.addColorStop(0.45, `${css}55`);
+    grad.addColorStop(1, `${css}00`);
+    g.fillStyle = grad;
+    g.fillRect(0, 0, px, px);
+  },
+  bit: 'trail',
+  streak: 'line',
+  scale: 1,
+};
 
 /**
  * - `spark`: a soft glow dot (pre-rendered sprite), shrinks as it fades.
@@ -105,6 +129,7 @@ export class ParticlePool {
   private readonly glows: (CanvasImageSource | null)[] = [];
   private readonly createCanvas: CanvasFactory | undefined;
   private readonly random: () => number;
+  private styleValue: ParticleStyle = NEON_PARTICLES;
   /** Particles refused because the pool was full (for stats / tests). */
   dropped = 0;
 
@@ -127,6 +152,17 @@ export class ParticlePool {
     this.color = new Uint8Array(cap);
     this.createCanvas = options.createCanvas;
     this.random = options.random ?? makeRandom();
+  }
+
+  get style(): ParticleStyle {
+    return this.styleValue;
+  }
+
+  /** Switches the drawing style (the theme changed); glow sprites are redrawn on demand. */
+  set style(style: ParticleStyle) {
+    if (style === this.styleValue) return;
+    this.styleValue = style;
+    this.glows.length = 0;
   }
 
   /** Live particles (including ones still waiting out their stagger). */
@@ -213,11 +249,12 @@ export class ParticlePool {
     }
   }
 
-  /** Draws every visible particle additively. The caller sets the transform. */
+  /** Draws every visible particle with the style's blending. The caller sets the transform. */
   draw(ctx: CanvasRenderingContext2D): void {
     if (this.n === 0) return;
+    const style = this.styleValue;
     ctx.save();
-    ctx.globalCompositeOperation = 'lighter';
+    ctx.globalCompositeOperation = style.blend;
     ctx.lineCap = 'round';
     let lastColor = -1;
     for (let i = 0; i < this.n; i++) {
@@ -230,7 +267,7 @@ export class ParticlePool {
       const c = this.color[i] ?? 0;
       const x = this.x[i] ?? 0;
       const y = this.y[i] ?? 0;
-      const s = this.size[i] ?? 1;
+      const s = (this.size[i] ?? 1) * style.scale;
       const shape = SHAPES[this.shape[i] ?? 0];
       if (shape === 'spark') {
         const glow = this.glow(c);
@@ -254,7 +291,12 @@ export class ParticlePool {
       }
       const vx = this.vx[i] ?? 0;
       const vy = this.vy[i] ?? 0;
-      if (shape === 'bit') {
+      if (shape === 'bit' && style.bit === 'fleck') {
+        // Gold dust: a tiny spinning sliver that glints as it turns.
+        const r = this.rot[i] ?? 0;
+        const w = s * (0.35 + 0.65 * Math.abs(Math.cos(r)));
+        ctx.fillRect(x - w / 2, y - s / 2, w, s);
+      } else if (shape === 'bit') {
         // A square head with a trail behind it along the dominant axis.
         const trail = Math.min(s * 6, (Math.abs(vx) + Math.abs(vy)) * 40);
         if (Math.abs(vx) >= Math.abs(vy)) {
@@ -264,6 +306,22 @@ export class ParticlePool {
           const back = vy >= 0 ? -trail : 0;
           ctx.fillRect(x - s / 2, y - s / 2 + back, s, s + trail);
         }
+      } else if (shape === 'streak' && style.streak === 'tapered') {
+        // An ink splash: a round head with a tail that thins out behind it.
+        const tx = x - vx * 30;
+        const ty = y - vy * 30;
+        const len = Math.hypot(tx - x, ty - y) || 1;
+        const nx = ((ty - y) / len) * s * 0.55;
+        const ny = (-(tx - x) / len) * s * 0.55;
+        ctx.beginPath();
+        ctx.moveTo(x + nx, y + ny);
+        ctx.lineTo(tx, ty);
+        ctx.lineTo(x - nx, y - ny);
+        ctx.closePath();
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(x, y, s * 0.6, 0, Math.PI * 2);
+        ctx.fill();
       } else if (shape === 'streak') {
         ctx.lineWidth = s;
         ctx.beginPath();
@@ -334,14 +392,7 @@ export class ParticlePool {
       const canvas = this.createCanvas(GLOW_PX, GLOW_PX);
       const g = canvas.getContext('2d');
       if (g) {
-        const h = GLOW_PX / 2;
-        const grad = g.createRadialGradient(h, h, 0, h, h, h);
-        grad.addColorStop(0, '#ffffff');
-        grad.addColorStop(0.18, css);
-        grad.addColorStop(0.45, `${css}55`);
-        grad.addColorStop(1, `${css}00`);
-        g.fillStyle = grad;
-        g.fillRect(0, 0, GLOW_PX, GLOW_PX);
+        this.styleValue.glowSprite(g, css, GLOW_PX);
         image = canvas;
       }
     }

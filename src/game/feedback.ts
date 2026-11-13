@@ -34,7 +34,8 @@ import { BoardFlash, RingPulse } from '../render/effects';
 import type { CellBurst } from '../render/fx';
 import type { BoardRenderer } from '../render/renderer';
 import type { EventCue } from '../render/viewModel';
-import { numberTileColors, type Theme, NEON_THEME } from '../render/theme';
+import { rampColor, type Theme } from '../render/theme';
+import { NEON_THEME } from '../render/themes';
 import type { HudModel, ScreenModel } from './runView';
 
 /** What the director needs from the board (implemented over `BoardRenderer`). */
@@ -135,7 +136,7 @@ export class Feedback {
   private readonly board: FeedbackBoard;
   private readonly sound: FeedbackSound;
   private readonly haptics: FeedbackHaptics;
-  private readonly theme: Theme;
+  private theme: Theme;
   private plan: ComboPlan = { order: new Map(), pitch: new Map(), total: 0 };
   private slid = false;
   private spawned = false;
@@ -183,6 +184,11 @@ export class Feedback {
     }
   }
 
+  /** Particle colours follow the theme (the renderer's look is switched separately). */
+  setTheme(theme: Theme): void {
+    this.theme = theme;
+  }
+
   /** The renderer's cue listener. */
   cue(cue: EventCue, late: boolean): void {
     const e = cue.event;
@@ -209,7 +215,7 @@ export class Feedback {
         const n = k + 1;
         const level = Math.max(1, Math.round(Math.log2(Math.max(2, e.value))));
         const weight = Math.min(1, (level - 1) / 10);
-        const accent = numberTileColors(e.value, th).accent;
+        const accent = rampColor(e.value, th);
         const { row, col } = e.to;
         const prism = e.sourceIds.some((id) => this.prisms.has(id));
         const big = e.value >= BIG_FROM;
@@ -220,7 +226,7 @@ export class Feedback {
           col,
           shape: 'spark',
           count: 4 + level * 1.3 + (combo ? 4 : 0),
-          colors: prism ? th.ramp.slice(0, 9) : [accent, accent, '#ffffff'],
+          colors: prism ? th.spectrum : [accent, accent, th.highlight],
           speed: [1.2, 2.6 + weight * 2.4],
           life: [260, 420 + weight * 260],
           size: [0.05, 0.09 + weight * 0.05],
@@ -250,7 +256,7 @@ export class Feedback {
             col,
             shape: 'streak',
             count: 6 + 3 * (level - 7),
-            colors: [accent, '#ffffff'],
+            colors: [accent, th.highlight],
             speed: [3.5, 6],
             life: [220, 380],
             size: [0.025, 0.04],
@@ -264,14 +270,14 @@ export class Feedback {
             col,
             shape: 'streak',
             count: 10,
-            colors: th.ramp.slice(0, 9),
+            colors: th.spectrum,
             speed: [2.5, 4.5],
             life: [260, 420],
             size: [0.025, 0.035],
             drag: 0.88,
             radius: 0.45,
           });
-          this.board.ring(row, col, th.prism, 1.1);
+          this.board.ring(row, col, th.wild, 1.1);
           this.sound.play('prism');
         }
         if (e.cursed) {
@@ -299,7 +305,7 @@ export class Feedback {
             row,
             col,
             `${gained}×${n}`,
-            '#ffffff',
+            th.comboText,
             Math.max(weight, 0.5),
             'combo',
           );
@@ -326,7 +332,7 @@ export class Feedback {
             col,
             shape: 'streak',
             count: 18,
-            colors: [th.targetDestroy, th.rift, '#ffffff'],
+            colors: [th.targetDestroy, th.boardAccent, th.highlight],
             speed: [3, 6],
             life: [240, 420],
             size: [0.03, 0.05],
@@ -337,7 +343,7 @@ export class Feedback {
             col,
             shape: 'shard',
             count: 8,
-            colors: [th.stone.edge, th.rift],
+            colors: [th.stone.edge, th.boardAccent],
             speed: [1.5, 3],
             life: [380, 600],
             size: [0.06, 0.11],
@@ -357,7 +363,7 @@ export class Feedback {
           col,
           shape: 'shard',
           count: 9,
-          colors: [th.stone.edge, th.stone.edge, '#c9c7d6', th.stone.fill],
+          colors: [th.stone.edge, th.stone.edge, th.stone.light, th.stone.fill],
           speed: [1.2, 2.8],
           life: [420, 640],
           size: [0.07, 0.13],
@@ -393,7 +399,7 @@ export class Feedback {
             col,
             shape: 'flake',
             count: 10,
-            colors: [th.ice, '#ffffff'],
+            colors: [th.ice, th.highlight],
             speed: [0.9, 2.2],
             life: [380, 620],
             size: [0.04, 0.08],
@@ -428,7 +434,7 @@ export class Feedback {
           col,
           shape: 'flake',
           count: 6,
-          colors: [th.ice, '#ffffff'],
+          colors: [th.ice, th.highlight],
           speed: [0.5, 1.2],
           life: [300, 480],
           size: [0.03, 0.06],
@@ -445,7 +451,7 @@ export class Feedback {
           col: e.at.col,
           shape: 'spark',
           count: 12,
-          colors: [th.bossTarget, numberTileColors(e.from, th).accent],
+          colors: [th.bossTarget, rampColor(e.from, th)],
           speed: [0.8, 2],
           life: [380, 620],
           size: [0.05, 0.09],
@@ -532,7 +538,7 @@ export class Feedback {
             col: e.at.col,
             shape: 'spark',
             count: 6,
-            colors: th.ramp.slice(0, 9),
+            colors: th.spectrum,
             speed: [0.4, 1],
             life: [300, 460],
             size: [0.04, 0.07],
@@ -666,7 +672,7 @@ export class Feedback {
       [2.6, 0.4],
       [2.6, 2.6],
     ];
-    const colors = this.victory ? th.ramp.slice(5, 11) : th.ramp.slice(0, 7);
+    const colors = this.victory ? th.fireworks.victory : th.fireworks.stage;
     for (const [i, [row, col]] of points.entries()) {
       this.board.burst({
         row,
@@ -702,8 +708,8 @@ export class Feedback {
   }
 }
 
-/** `FeedbackBoard` over the real renderer. */
-export function rendererBoard(renderer: BoardRenderer, theme: Theme = NEON_THEME): FeedbackBoard {
+/** `FeedbackBoard` over the real renderer (its current theme colours the reduced-motion flash). */
+export function rendererBoard(renderer: BoardRenderer): FeedbackBoard {
   const fx = renderer.fx;
   return {
     burst: (spec) => {
@@ -721,7 +727,7 @@ export function rendererBoard(renderer: BoardRenderer, theme: Theme = NEON_THEME
     nudge: (dx, dy) => {
       // Reduced motion: the board does not move; a brief red edge says the same thing.
       if (renderer.motionReduced) {
-        renderer.addEffect(new BoardFlash(theme.lock, renderer.viewTimeNow(), 260));
+        renderer.addEffect(new BoardFlash(renderer.currentTheme.lock, renderer.viewTimeNow(), 260));
       } else {
         fx.nudge(dx, dy);
         renderer.wake();

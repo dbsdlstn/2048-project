@@ -4,6 +4,10 @@
  * - `?seed=<n or text>` seeds the first run (works without debug).
  * - `?mode=run|endless` skips the menu and starts that mode; `?stage=<index>`
  *   (0-based) and `?relics=a,b` set the start (run mode stage, owned relics).
+ * - `?theme=storybook` switches the look (works without debug; default neon).
+ *   Storybook proof extras (stage A mock, see factionMock.ts):
+ *   `&mockFaction=dwarf:2` pretends relics are owned (frame states, offer
+ *   progress) and `&journey=0..4` opens the act 1 journey map.
  * - `?debug` additionally exposes `window.__neonRift` for automated checks,
  *   agent playtests and manual debugging. Nothing is exposed without the flag.
  */
@@ -20,6 +24,10 @@ import type {
 import type { SoundLogEntry } from '../audio/engine';
 import type { RenderedSound } from '../audio/webaudio';
 import type { FrameStats } from '../render/renderer';
+import type { RaceId, Scenery } from '../render/scenery';
+import type { ThemeId } from '../render/theme';
+import type { FactionArt, JourneyMoment, JourneyState } from './factionView';
+import { parseThemeId } from '../render/themes';
 import type { RunController } from './runController';
 import { hudModel, isRelicId, type HudModel, type Hint, type ScreenModel } from './runView';
 
@@ -33,6 +41,12 @@ export interface LaunchParams {
   readonly stage: number | null;
   /** Relics owned from the start (unknown ids are dropped). */
   readonly relics: readonly RelicId[];
+  /** The visual theme (`?theme=`); unknown values fall back to neon. */
+  readonly theme: ThemeId;
+  /** Storybook proof only: pretend-owned relics per race, raw (`?mockFaction=dwarf:2`). */
+  readonly mockFaction: string | null;
+  /** Storybook proof only: open the act 1 journey map with this many stops reached (`?journey=0..4`). */
+  readonly journey: number | null;
 }
 
 export function readLaunchParams(search: string): LaunchParams {
@@ -47,7 +61,11 @@ export function readLaunchParams(search: string): LaunchParams {
     .split(',')
     .map((s) => s.trim())
     .filter(isRelicId);
-  return { debug: params.has('debug'), seed, mode, stage, relics };
+  const theme = parseThemeId(params.get('theme'));
+  const journeyRaw = params.get('journey') ?? '';
+  const journey = /^[0-4]$/.test(journeyRaw) ? Number(journeyRaw) : null;
+  const mockFaction = params.get('mockFaction');
+  return { debug: params.has('debug'), seed, mode, stage, relics, theme, mockFaction, journey };
 }
 
 /** Start options from launch params (only what was given). */
@@ -74,6 +92,20 @@ export interface DebugBoard {
   cellClientCenter?(row: number, col: number): { x: number; y: number };
   frameStats?(): FrameStats;
   resetFrameStats?(): void;
+}
+
+/** Storybook art-proof controls (stage A; absent in the neon theme). */
+export interface DebugStorybook {
+  /** Plays the companion-joined / race-rallied moment on the board (default race: dwarf). */
+  moment(kind: 'join' | 'rally', race?: RaceId): void;
+  /** Sets the pretend-owned relics, e.g. 'dwarf:4' (null clears), and redraws the frame. */
+  setMock(spec: string | null): void;
+  /** Opens the journey map (null closes it); `moment` plays a join / rally on it. */
+  journey(state?: Partial<JourneyState> | null, moment?: JourneyMoment): void;
+  /** Current frame scenery. */
+  scenery(): Scenery;
+  /** The code-drawn pictures as SVG markup (proof sheets). */
+  art(): FactionArt;
 }
 
 /** Feedback internals the debug API can inspect (stage 5). */
@@ -132,6 +164,8 @@ export interface DebugApi {
   resetFrameStats(): void;
   /** Sound / vibration logs and offline sound rendering, when wired. */
   readonly feedback: DebugFeedback | null;
+  /** Storybook art-proof controls, when that theme is on. */
+  readonly storybook: DebugStorybook | null;
 }
 
 declare global {
@@ -145,6 +179,7 @@ export function createDebugApi(deps: {
   readonly board: DebugBoard;
   readonly clock: SteppableClock;
   readonly feedback?: DebugFeedback;
+  readonly storybook?: DebugStorybook;
 }): DebugApi {
   const { controller, board, clock } = deps;
   const requireRelic = (id: RelicId): void => {
@@ -221,5 +256,6 @@ export function createDebugApi(deps: {
       board.resetFrameStats?.();
     },
     feedback: deps.feedback ?? null,
+    storybook: deps.storybook ?? null,
   };
 }

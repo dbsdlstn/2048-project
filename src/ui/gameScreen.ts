@@ -15,6 +15,7 @@ import type { Hint, HudModel, ScreenModel, StageBanner } from '../game/runView';
 import { ref, replayClass } from './dom';
 import { Hud } from './hud';
 import {
+  NEON_BRAND,
   confirmScreen,
   helpScreen,
   menuScreen,
@@ -22,6 +23,8 @@ import {
   pauseScreen,
   resultScreen,
   settingsScreen,
+  type Brand,
+  type DecorateOffer,
   type ScreenHandlers,
 } from './screens';
 
@@ -99,6 +102,13 @@ const TEMPLATE = `
   <div class="screen" data-ref="sheet" role="dialog" aria-modal="true" hidden></div>
 `;
 
+/** Per-theme presentation of the DOM screens. */
+export interface GameScreenOptions {
+  readonly brand?: Brand;
+  /** Storybook proof: race crest, picture and set progress on offer cards. */
+  readonly decorateOffer?: DecorateOffer;
+}
+
 export interface GameScreen {
   /** Full-screen element that receives swipes and taps. */
   readonly surface: HTMLElement;
@@ -125,9 +135,13 @@ export class GameUi implements UiDisplay {
   /** Whether the last input came from a keyboard (then sheets move focus to their first button). */
   private keyboard = false;
 
+  /** An extra full-screen layer over everything (the journey map), or null. */
+  private overlay: HTMLElement | null = null;
+
   constructor(
     private readonly surface: HTMLElement,
     private readonly handlers: GameScreenHandlers,
+    private readonly options: GameScreenOptions = {},
   ) {
     this.game = ref(surface, 'game', HTMLElement);
     this.sheet = ref(surface, 'sheet', HTMLElement);
@@ -190,7 +204,7 @@ export class GameUi implements UiDisplay {
     let content: HTMLElement | null = null;
     switch (screen.kind) {
       case 'menu':
-        content = menuScreen(screen, h);
+        content = menuScreen(screen, h, this.options.brand ?? NEON_BRAND);
         break;
       case 'help':
         content = helpScreen(screen, h);
@@ -202,7 +216,7 @@ export class GameUi implements UiDisplay {
         content = confirmScreen(screen, h);
         break;
       case 'offer':
-        content = offerScreen(screen, h);
+        content = offerScreen(screen, h, this.options.decorateOffer ?? null);
         break;
       case 'paused':
         content = pauseScreen(this.lastHud, h);
@@ -266,14 +280,39 @@ export class GameUi implements UiDisplay {
   pulseRelic(id: RelicId): void {
     this.hud.pulseRelic(id);
   }
+
+  get overlayOpen(): boolean {
+    return this.overlay !== null;
+  }
+
+  /**
+   * Shows a sheet above everything else (stage A: the journey map), or
+   * removes it with null. It does not change the screen the controller sees.
+   */
+  showOverlay(content: HTMLElement | null, kind = 'overlay'): void {
+    this.overlay?.remove();
+    this.overlay = null;
+    if (!content) return;
+    const layer = document.createElement('div');
+    layer.className = `screen screen-${kind}`;
+    layer.setAttribute('role', 'dialog');
+    layer.setAttribute('aria-modal', 'true');
+    layer.append(content);
+    this.surface.append(layer);
+    this.overlay = layer;
+  }
 }
 
-export function createGameScreen(root: HTMLElement, handlers: GameScreenHandlers): GameScreen {
+export function createGameScreen(
+  root: HTMLElement,
+  handlers: GameScreenHandlers,
+  options: GameScreenOptions = {},
+): GameScreen {
   const surface = document.createElement('main');
   surface.className = 'app';
   surface.innerHTML = TEMPLATE;
   root.replaceChildren(surface);
   const canvas = surface.querySelector('canvas');
   if (!canvas) throw new Error('gameScreen: missing canvas');
-  return { surface, canvas, ui: new GameUi(surface, handlers) };
+  return { surface, canvas, ui: new GameUi(surface, handlers, options) };
 }

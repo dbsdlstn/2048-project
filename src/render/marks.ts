@@ -7,7 +7,7 @@
  */
 import type { LineAxis, Position, TileId } from '../core';
 import { cellCenter, cellOrigin, type BoardLayout } from './layout';
-import type { Theme } from './theme';
+import type { BoardArt, Theme } from './theme';
 import { CHIP_CUT, chipPath, roundRectPath } from './tilePainter';
 
 export interface TargetingMarks {
@@ -30,9 +30,6 @@ export interface BoardMarks {
 
 export const NO_MARKS: BoardMarks = { lock: null, bossTarget: null, targeting: null };
 
-/** Board corner radius as a fraction of its size. Keep in sync with `.board` in style.css. */
-export const BOARD_RADIUS_RATIO = 0.05;
-
 /** Rectangle covering one row or column of cells (gap included), in board space. */
 export function lineRect(
   layout: BoardLayout,
@@ -48,7 +45,7 @@ export function lineRect(
     : { x: start.x - half, y: layout.padding - half, w: short, h: long };
 }
 
-/** Static background: plate, circuit traces in the gaps, the rift, and chip-shaped slots. */
+/** Neon static background: plate, circuit traces in the gaps, the rift, and chip-shaped slots. */
 export function paintBoardBackground(
   ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
   layout: BoardLayout,
@@ -57,7 +54,7 @@ export function paintBoardBackground(
 ): void {
   const { size } = layout;
   ctx.save();
-  roundRectPath(ctx, 0, 0, size, size, size * BOARD_RADIUS_RATIO);
+  roundRectPath(ctx, 0, 0, size, size, layout.boardRadius);
   ctx.fillStyle = theme.board;
   ctx.fill();
   ctx.lineWidth = 1.5;
@@ -81,10 +78,10 @@ export function paintBoardBackground(
     if (i === 0) ctx.moveTo(px * size, py * size);
     else ctx.lineTo(px * size, py * size);
   });
-  ctx.strokeStyle = theme.rift;
+  ctx.strokeStyle = theme.boardAccent;
   ctx.globalAlpha = 0.55;
   ctx.lineWidth = Math.max(1.5, size * 0.006);
-  ctx.shadowColor = theme.rift;
+  ctx.shadowColor = theme.boardAccent;
   ctx.shadowBlur = size * 0.03 * pixelRatio;
   ctx.stroke();
   ctx.shadowBlur = 0;
@@ -92,8 +89,8 @@ export function paintBoardBackground(
 
   // Circuit traces along the gap centres, with vias where they cross.
   const step = layout.cell + layout.gap;
-  ctx.strokeStyle = theme.trace;
-  ctx.fillStyle = theme.trace;
+  ctx.strokeStyle = theme.boardDetail;
+  ctx.fillStyle = theme.boardDetail;
   ctx.lineWidth = Math.max(1, layout.gap * 0.18);
   ctx.beginPath();
   for (let i = 0; i <= layout.gridSize; i++) {
@@ -260,7 +257,7 @@ export function paintMarksAbove(
     const valid = new Set(targeting.cells.map((p) => p.row * layout.gridSize + p.col));
     const color = targeting.effect === 'freeze' ? theme.ice : theme.targetDestroy;
     // Dim everything the relic cannot take.
-    ctx.fillStyle = 'rgba(6, 6, 14, 0.62)';
+    ctx.fillStyle = theme.dim;
     for (let row = 0; row < layout.gridSize; row++) {
       for (let col = 0; col < layout.gridSize; col++) {
         if (valid.has(row * layout.gridSize + col)) continue;
@@ -291,6 +288,13 @@ export function paintMarksAbove(
   }
   ctx.restore();
 }
+
+/** The neon theme's board painters. */
+export const NEON_BOARD_ART: BoardArt = {
+  background: paintBoardBackground,
+  marksBelow: paintMarksBelow,
+  marksAbove: paintMarksAbove,
+};
 
 /**
  * Whether marks need continuous redraws. Only the short-lived targeting

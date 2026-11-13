@@ -5,6 +5,7 @@
  * swaps them in and out.
  */
 import type { RelicId } from '../core';
+import type { OfferDecoration } from '../game/factionView';
 import type { HudModel, OfferCard, Records, ScreenModel } from '../game/runView';
 import { VOLUME_LEVELS, type MotionSetting, type RunSlot, type Settings } from '../save/store';
 import { button, el, formatNumber } from './dom';
@@ -28,11 +29,25 @@ export interface ScreenHandlers {
 
 type Model<K extends ScreenModel['kind']> = Extract<ScreenModel, { kind: K }>;
 
-function logo(): HTMLElement {
-  const h = el('h1', 'logo', 'NEON');
-  h.append(el('span', '', 'RIFT'));
-  return h;
+/** The game's name on the menu, per theme (the storybook proof shows its working title). */
+export interface Brand {
+  logo(): HTMLElement;
+  readonly tagline: string;
+  readonly runBlurb: string;
 }
+
+export const NEON_BRAND: Brand = {
+  logo: () => {
+    const h = el('h1', 'logo', 'NEON');
+    h.append(el('span', '', 'RIFT'));
+    return h;
+  },
+  tagline: '합쳐서 균열을 닫는 로그라이크 퍼즐',
+  runBlurb: '12 스테이지 · 보스 3 · 유물을 모아 균열을 닫으세요',
+};
+
+/** Storybook proof: decoration for an offered relic; null keeps the plain card. */
+export type DecorateOffer = (id: RelicId) => OfferDecoration | null;
 
 function records(r: Records): HTMLElement {
   const box = el('dl', 'records');
@@ -85,7 +100,11 @@ function modeCard(
   return card;
 }
 
-export function menuScreen(model: Model<'menu'>, h: ScreenHandlers): HTMLElement {
+export function menuScreen(
+  model: Model<'menu'>,
+  h: ScreenHandlers,
+  brand: Brand = NEON_BRAND,
+): HTMLElement {
   const wrap = el('div', 'sheet menu');
   const saved = (slot: RunSlot): string | null =>
     model.continues.find((c) => c.slot === slot)?.label ?? null;
@@ -101,16 +120,9 @@ export function menuScreen(model: Model<'menu'>, h: ScreenHandlers): HTMLElement
     }),
   );
   wrap.append(
-    logo(),
-    el('p', 'tagline', '합쳐서 균열을 닫는 로그라이크 퍼즐'),
-    modeCard(
-      'run',
-      '런 모드',
-      '12 스테이지 · 보스 3 · 유물을 모아 균열을 닫으세요',
-      saved('run'),
-      true,
-      h,
-    ),
+    brand.logo(),
+    el('p', 'tagline', brand.tagline),
+    modeCard('run', '런 모드', brand.runBlurb, saved('run'), true, h),
     modeCard('daily', `오늘의 도전 · ${d.label}`, dailyBlurb, saved('daily'), false, h),
     modeCard('endless', '무한 모드', '막힐 때까지 · 큰 타일마다 유물', saved('endless'), false, h),
     records(model.records),
@@ -269,22 +281,50 @@ export function confirmScreen(model: Model<'confirm'>, h: ScreenHandlers): HTMLE
   return wrap;
 }
 
-function offerCard(card: OfferCard, h: ScreenHandlers): HTMLButtonElement {
+function offerCard(
+  card: OfferCard,
+  h: ScreenHandlers,
+  deco: OfferDecoration | null,
+): HTMLButtonElement {
   const b = button(`offer-card rarity-${card.rarity}`, '', () => {
     h.onChooseRelic(card.id);
   });
   const head = el('span', 'offer-head');
-  head.append(el('strong', 'offer-name', card.name));
+  head.append(el('strong', 'offer-name', deco?.name ?? card.name));
   if (card.active) head.append(el('span', 'tag tag-active', '사용'));
   head.append(el('span', 'tag', card.rarityLabel));
-  b.append(head, el('span', 'offer-desc', card.description));
+  const desc = el('span', 'offer-desc', deco?.line ?? card.description);
+  if (!deco) {
+    b.append(head, desc);
+    return b;
+  }
+  const row = el('span', 'offer-row');
+  const main = el('span', 'offer-main');
+  const progress = el('span', `offer-progress${deco.milestone ? ' is-milestone' : ''}`);
+  // Static, code-drawn SVG (no user data).
+  progress.innerHTML = deco.crestSvg;
+  const [count, tail] = deco.progress.split(' · ');
+  progress.append(el('span', '', count ?? deco.progress));
+  if (tail) progress.append(el('b', '', tail));
+  main.append(head, desc, progress);
+  if (deco.emblemSvg) {
+    const pic = el('span', 'offer-emblem');
+    pic.innerHTML = deco.emblemSvg;
+    row.append(pic);
+  }
+  row.append(main);
+  b.append(row);
   return b;
 }
 
-export function offerScreen(model: Model<'offer'>, h: ScreenHandlers): HTMLElement {
+export function offerScreen(
+  model: Model<'offer'>,
+  h: ScreenHandlers,
+  decorate: DecorateOffer | null = null,
+): HTMLElement {
   const wrap = el('div', 'sheet offer');
   const cards = el('div', 'offer-cards');
-  cards.append(...model.cards.map((c) => offerCard(c, h)));
+  cards.append(...model.cards.map((c) => offerCard(c, h, decorate?.(c.id) ?? null)));
   wrap.append(el('h2', 'sheet-title', model.title), el('p', 'sheet-sub', model.subtitle));
   if (model.tip) wrap.append(el('p', 'sheet-tip', model.tip));
   wrap.append(

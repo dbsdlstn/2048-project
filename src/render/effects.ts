@@ -7,7 +7,7 @@
  */
 import type { LineAxis, TurnEvent } from '../core';
 import { cellCenter, type BoardLayout } from './layout';
-import { BOARD_RADIUS_RATIO, lineRect } from './marks';
+import { lineRect } from './marks';
 import type { Theme } from './theme';
 import { roundRectPath } from './tilePainter';
 import { easeOutCubic, progress } from './tween';
@@ -115,7 +115,8 @@ export class BoardFlash extends TimedEffect {
   draw(ctx: CanvasRenderingContext2D, layout: BoardLayout, now: number): void {
     if (now < this.start) return;
     const t = this.t(now);
-    const inset = layout.gap * 0.3;
+    // Just outside the grid (inside a wide storybook frame, near the edge on neon).
+    const inset = layout.padding - layout.gap * 0.7;
     ctx.save();
     ctx.strokeStyle = this.color;
     roundRectPath(
@@ -124,7 +125,7 @@ export class BoardFlash extends TimedEffect {
       inset,
       layout.size - inset * 2,
       layout.size - inset * 2,
-      layout.size * BOARD_RADIUS_RATIO,
+      layout.boardRadius,
     );
     ctx.globalAlpha = 0.3 * (1 - t);
     ctx.lineWidth = layout.gap * (1.6 + 1.2 * (1 - t));
@@ -169,7 +170,7 @@ export function cueEffect(cue: EventCue, theme: Theme, late: boolean): Effect | 
     case 'shuffle':
       return new BoardFlash(theme.curse, at);
     case 'stageCleared':
-      return new BoardFlash(theme.ramp[0] ?? '#ffffff', at, 700);
+      return new BoardFlash(theme.celebrate, at, 700);
     case 'stageFailed':
     case 'gameOver':
       return new BoardFlash(theme.lock, at, 700);

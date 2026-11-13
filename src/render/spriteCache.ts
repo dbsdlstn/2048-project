@@ -3,10 +3,11 @@
  * operations, especially on cheap phones, so each distinct tile look is drawn
  * once into an offscreen canvas at the current cell size x devicePixelRatio and
  * then copied with `drawImage` every frame. Changing the cell size or DPR
- * (resize, zoom, moving to another screen) throws the cache away.
+ * (resize, zoom, moving to another screen) or the theme throws the cache away.
  */
-import { NEON_THEME, type Theme } from './theme';
-import { TILE_ART, type TileArt, type TileLook } from './tilePainter';
+import type { Theme } from './theme';
+import { NEON_THEME } from './themes';
+import type { TileArt, TileLook } from './tilePainter';
 import type { TileKind } from '../core';
 
 export interface CachedTile {
@@ -27,6 +28,7 @@ export const createDomCanvas: CanvasFactory = (width, height) => {
 export interface TileSpriteCacheOptions {
   readonly theme?: Theme;
   readonly createCanvas?: CanvasFactory;
+  /** Overrides the theme's tile art (tests). */
   readonly art?: Readonly<Record<TileKind, TileArt>>;
   /** The cache is emptied when it grows past this many images (a crude but safe bound). */
   readonly maxEntries?: number;
@@ -34,18 +36,18 @@ export interface TileSpriteCacheOptions {
 
 export class TileSpriteCache {
   private readonly entries = new Map<string, CachedTile>();
-  private readonly theme: Theme;
+  private themeValue: Theme;
   private readonly createCanvas: CanvasFactory;
-  private readonly art: Readonly<Record<TileKind, TileArt>>;
+  private readonly artOverride: Readonly<Record<TileKind, TileArt>> | null;
   private readonly maxEntries: number;
   private cell = 0;
   private radius = 0;
   private pixelRatio = 1;
 
   constructor(options: TileSpriteCacheOptions = {}) {
-    this.theme = options.theme ?? NEON_THEME;
+    this.themeValue = options.theme ?? NEON_THEME;
     this.createCanvas = options.createCanvas ?? createDomCanvas;
-    this.art = options.art ?? TILE_ART;
+    this.artOverride = options.art ?? null;
     this.maxEntries = options.maxEntries ?? 64;
   }
 
@@ -66,6 +68,17 @@ export class TileSpriteCache {
     this.entries.clear();
   }
 
+  get theme(): Theme {
+    return this.themeValue;
+  }
+
+  /** Switches theme; every cached image belongs to the old one, so the cache empties. */
+  setTheme(theme: Theme): void {
+    if (theme === this.themeValue) return;
+    this.themeValue = theme;
+    this.entries.clear();
+  }
+
   get(look: TileLook): CachedTile {
     const key = `${look.kind}|${look.value}|${look.emphasized ? 1 : 0}`;
     let entry = this.entries.get(key);
@@ -78,8 +91,9 @@ export class TileSpriteCache {
   }
 
   private render(look: TileLook): CachedTile {
-    const art = this.art[look.kind];
-    const margin = art.margin(look, this.theme);
+    const theme = this.themeValue;
+    const art = (this.artOverride ?? theme.tileArt)[look.kind];
+    const margin = art.margin(look, theme);
     const cssSize = this.cell + margin * 2;
     const pixels = Math.max(1, Math.ceil(cssSize * this.pixelRatio));
     const canvas = this.createCanvas(pixels, pixels);
@@ -94,7 +108,7 @@ export class TileSpriteCache {
       cell: this.cell,
       radius: this.radius,
       look,
-      theme: this.theme,
+      theme,
       pixelRatio: scale,
     });
     return { image: canvas, cssSize };

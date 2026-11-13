@@ -4,6 +4,8 @@ export * from './clock';
 export * from './loop';
 export * from './layout';
 export * from './theme';
+export * from './themes';
+export * from './scenery';
 export * from './viewModel';
 export * from './tilePainter';
 export * from './spriteCache';
