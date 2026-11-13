@@ -218,7 +218,14 @@ export interface RunRecord {
   readonly totalMoves: number;
   /** Why the run ended, unless it was won. */
   readonly failReason: FailReason | null;
-  readonly offers: readonly { readonly offered: readonly RelicId[]; readonly picked: RelicId }[];
+  /** Score made in the stage the run ended on. */
+  readonly finalStageScore: number;
+  /** Relic picks; `stage` is the index of the stage just cleared. */
+  readonly offers: readonly {
+    readonly stage: number;
+    readonly offered: readonly RelicId[];
+    readonly picked: RelicId;
+  }[];
 }
 
 /** Uses an active relic to get out of a stuck board: bomb the smallest tile, else undo. */
@@ -300,7 +307,7 @@ export function playRun(bot: Bot, seed: number, pick: Picker = randomPick): RunR
   let run = startRun('run', seed).run;
   let rng = createRng(seed ^ 0x5bd1e995);
   const movesPerStage: number[] = [];
-  const offers: { offered: RelicId[]; picked: RelicId }[] = [];
+  const offers: { stage: number; offered: RelicId[]; picked: RelicId }[] = [];
 
   let totalMoves = 0;
   while (run.status === 'playing') {
@@ -313,7 +320,9 @@ export function playRun(bot: Bot, seed: number, pick: Picker = randomPick): RunR
     movesPerStage.push(run.progress.movesUsed);
     const choice = pick(run.offer, rng);
     rng = choice.rng;
-    if (choice.picked !== null) offers.push({ offered: [...run.offer], picked: choice.picked });
+    if (choice.picked !== null) {
+      offers.push({ stage: run.stageIndex, offered: [...run.offer], picked: choice.picked });
+    }
     run = chooseRelic(run, choice.picked).run;
   }
   const won = run.status === 'victory';
@@ -323,6 +332,7 @@ export function playRun(bot: Bot, seed: number, pick: Picker = randomPick): RunR
     movesPerStage,
     totalMoves,
     failReason: won ? null : (run.failReason ?? 'stuck'),
+    finalStageScore: run.progress.score,
     offers,
   };
 }
@@ -455,6 +465,31 @@ function main(): void {
       `${pad(bot.name, 8)} win ${pct(wins.length, list.length)}  past act 1 ${pct(pastAct1, list.length)}  reached act 3 boss ${pct(act3Boss, list.length)}  boss win ${pct(wins.length, act3Boss)}` +
         `  lost by moves/stuck ${pct(byMoves, lost.length)}/${pct(lost.length - byMoves, lost.length)}` +
         `  moves ${mean(list.map((r) => r.totalMoves))} / ${mean(wins.map((r) => r.totalMoves))}`,
+    );
+  }
+
+  // Score stages by build: runs holding a score relic (one that is only offered
+  // while a score goal lies ahead) against runs without one.
+  const cornerRuns = records.get('corner');
+  if (cornerRuns) {
+    const scoreRelics = new Set(
+      RELIC_IDS.filter((id) => RELICS[id].isUseful?.({ has: (k) => k !== 'scoreGoal' }) === false),
+    );
+    const parts: string[] = [];
+    STAGES.forEach((spec, s) => {
+      if (spec.goal.type !== 'score') return;
+      const at = cornerRuns.filter((r) => r.reached >= s);
+      const rate = (withRelic: boolean): string => {
+        const group = at.filter(
+          (r) => r.offers.some((o) => o.stage < s && scoreRelics.has(o.picked)) === withRelic,
+        );
+        const cleared = group.filter((r) => r.reached > s || r.won).length;
+        return `${pct(cleared, group.length)} (n=${group.length})`;
+      };
+      parts.push(`${stageLabel(s)} with ${rate(true)} / without ${rate(false)}`);
+    });
+    console.log(
+      `${pad('corner', 8)} score stages with / without a score relic: ${parts.join('  ')}`,
     );
   }
 

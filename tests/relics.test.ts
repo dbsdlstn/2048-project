@@ -218,11 +218,17 @@ describe('relic effects', () => {
     expect(out.stats.scoreGained).toBe(8 * T.statusFactor);
   });
 
-  it('잔해 연료: each broken stone gives back moves', () => {
-    const out = turnOn([[2, 2, S, E], empty(), empty(), empty()], 'left', {
+  it('잔해 연료: every few broken stones give back a move', () => {
+    // One stone short: the break is only counted.
+    const counted = turnOn([[2, 2, S, E], empty(), empty(), empty()], 'left', {
       relics: ['debrisFuel'],
     });
-    expect(out.stats.bonusMoves).toBe(T.movesPerStone);
+    expect(counted.stats.bonusMoves).toBe(0);
+    expect(counted.relics[0]?.counter).toBe(1);
+    const fuel = { ...createRelic('debrisFuel'), counter: T.stonesPerMove - 1 };
+    const out = turnOn([[2, 2, S, E], empty(), empty(), empty()], 'left', { relics: [fuel] });
+    expect(out.stats.bonusMoves).toBe(1);
+    expect(out.relics[0]?.counter).toBe(0);
     const resolve = out.phases.find((p) => p.kind === 'resolve');
     expect(resolve?.events.map((e) => e.type)).toEqual(['destroy', 'trigger', 'bonusMoves']);
   });
@@ -271,12 +277,13 @@ describe('relic effects', () => {
   });
 
   it('도약 렌즈: the first merges of a stage double their result', () => {
-    const out = turnOn([[2, 2, 4, 4], [8, 8, E, E], empty(), empty()], 'left', {
+    const out = turnOn([[2, 2, 4, 4], [8, 8, E, E], [16, 16, E, E], empty()], 'left', {
       relics: ['leapLens'],
     });
     const values = ofType(flat(out.phases), 'merge').map((m) => m.value);
-    // Two doubled merges (2+2 → 8, 4+4 → 16), then a normal one (8+8 → 16).
-    expect(values).toEqual([8, 16, 16]);
+    // Three doubled merges (2+2 → 8, 4+4 → 16, 8+8 → 32), then a normal one (16+16 → 32).
+    expect(T.lensMerges).toBe(3);
+    expect(values).toEqual([8, 16, 32, 32]);
     expect(out.relics[0]?.counter).toBe(T.lensMerges);
     const run = startRun('run', 7, { relics: ['leapLens'] }).run;
     expect(run.relics[0]?.counter).toBe(0);

@@ -1,0 +1,25 @@
+{
+  "id": "./",
+  "name": "네온 리프트 (Neon Rift)",
+  "short_name": "네온 리프트",
+  "description": "2048 합체 규칙에 방해 타일, 보스 규칙, 유물 빌드를 더한 로그라이크 퍼즐",
+  "lang": "ko",
+  "dir": "ltr",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "theme_color": "#08080f",
+  "background_color": "#08080f",
+  "categories": ["games", "puzzle"],
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    {
+      "src": "icons/maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

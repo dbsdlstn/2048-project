@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <filter id="glow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="9" result="blur" />
+      <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
+    </filter>
+    <radialGradient id="halo" cx="50%" cy="50%" r="50%">
+      <stop offset="0" stop-color="#2a1f5c" />
+      <stop offset="1" stop-color="#08080f" />
+    </radialGradient>
+    <radialGradient id="haze" cx="50%" cy="45%" r="65%">
+      <stop offset="0" stop-color="#2a1f5c" />
+      <stop offset="1" stop-color="#08080f" />
+    </radialGradient>
+  </defs>
+  <rect x="16" y="16" width="480" height="480" rx="104" fill="url(#haze)" />
+  <g transform="translate(-20.480000000000018 -20.480000000000018) scale(1.08)">
+    <polygon points="164,106 348,106 406,164 406,348 348,406 164,406 106,348 106,164" fill="#12122a" />
+    
+    <polygon points="164,106 348,106 406,164 406,348 348,406 164,406 106,348 106,164" fill="none" stroke="#2de2e6" stroke-width="26" stroke-linejoin="round" filter="url(#glow)" />
+    <polyline points="406,90 350,152 374,178 314,216 338,248 258,284 282,318 200,352 218,378 106,430" fill="none" stroke="#08080f" stroke-width="54" stroke-linejoin="round" stroke-linecap="round" />
+    <polyline points="406,90 350,152 374,178 314,216 338,248 258,284 282,318 200,352 218,378 106,430" fill="none" stroke="#ffb347" stroke-width="26" stroke-linejoin="round" stroke-linecap="round" filter="url(#glow)" />
+    <polyline points="406,90 350,152 374,178 314,216 338,248 258,284 282,318 200,352 218,378 106,430" fill="none" stroke="#fff4dc" stroke-width="9" stroke-linejoin="round" stroke-linecap="round" /></g>
+</svg>

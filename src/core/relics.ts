@@ -239,12 +239,18 @@ const DEFS: readonly RelicDef[] = [
   {
     id: 'debrisFuel',
     name: '잔해 연료',
-    description: `돌이 하나 부서질 때마다 이동 +${T.movesPerStone}`,
+    description: `돌을 ${T.stonesPerMove}개 부술 때마다 이동 +1`,
     rarity: 'common',
     isUseful: (c) => c.has('stone') && c.has('moveLimit'),
-    onStoneBreak: (count) => ({
-      effects: [{ kind: 'bonusMoves', amount: count * T.movesPerStone }],
-    }),
+    onStageStart: () => ({ counter: 0 }),
+    onStoneBreak: (count, self) => {
+      const total = self.counter + count;
+      const moves = Math.floor(total / T.stonesPerMove);
+      return {
+        counter: total % T.stonesPerMove,
+        effects: moves > 0 ? [{ kind: 'bonusMoves', amount: moves }] : [],
+      };
+    },
   },
   {
     id: 'twinSeed',
@@ -301,10 +307,6 @@ export const RELICS: Readonly<Record<RelicId, RelicDef>> = Object.fromEntries(
 ) as Record<RelicId, RelicDef>;
 
 export const RELIC_IDS: readonly RelicId[] = DEFS.map((d) => d.id);
-
-export function relicDef(id: RelicId): RelicDef {
-  return RELICS[id];
-}
 
 export function createRelic(id: RelicId): RelicInstance {
   return { id, charges: 0, counter: 0 };

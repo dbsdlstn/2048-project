@@ -11,7 +11,8 @@ import { attachInput } from './input';
 import { Haptics, browserVibrate } from './input/haptics';
 import { BoardRenderer, NEON_THEME, PausableClock, browserClock } from './render';
 import { SaveStore, browserStorage, motionReduced, type Settings } from './save';
-import { createGameScreen } from './ui';
+import { UpdateFlow } from './pwa/register';
+import { createGameScreen, createUpdateToast } from './ui';
 
 /** The relic offer's sound waits for its sheet to fade in (see `.screen-offer` in style.css). */
 const OFFER_SOUND_DELAY = 650;
@@ -210,6 +211,33 @@ attachInput({
 
 if (params.mode) controller.start(params.mode, undefined, startOptions(params));
 else controller.showMenu();
+
+// Offline play and installs (production builds only; the dev server has no worker).
+if (import.meta.env.PROD && 'serviceWorker' in navigator) {
+  const base = import.meta.env.BASE_URL;
+  const updates = new UpdateFlow({
+    container: navigator.serviceWorker,
+    url: `${base}sw.js`,
+    scope: base,
+    onUpdateReady: () => {
+      toast.show();
+    },
+    reload: () => {
+      window.location.reload();
+    },
+    now: () => Date.now(),
+    onError: (error) => {
+      console.warn('[neon-rift] service worker:', error);
+    },
+  });
+  const toast = createUpdateToast(screen.surface, () => {
+    updates.apply();
+  });
+  void updates.start();
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) updates.checkForUpdate();
+  });
+}
 
 if (debugClock) {
   window.__neonRift = createDebugApi({

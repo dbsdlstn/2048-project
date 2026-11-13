@@ -1,0 +1,64 @@
+# Checks every push and pull request: lint, formatting, unit tests, build, and
+# the Playwright smoke tests against the production build.
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Lint, test, build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run format:check
+      - run: npm run test
+      - run: npm run build
+      - name: Bundle size
+        run: |
+          {
+            echo '### Bundle size'
+            echo '| file | bytes | gzip |'
+            echo '| --- | ---: | ---: |'
+            for f in dist/assets/* dist/sw.js; do
+              echo "| ${f#dist/} | $(wc -c < "$f") | $(gzip -9c "$f" | wc -c) |"
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  e2e:
+    name: End-to-end (Playwright, phone viewport)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Install Chromium for Playwright
+        run: npx playwright install --with-deps chromium
+      # Builds the app and serves it with `vite preview` (see playwright.config.ts).
+      - run: npm run e2e
+      - name: Keep traces of failed tests
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-traces
+          path: test-results/
+          retention-days: 7

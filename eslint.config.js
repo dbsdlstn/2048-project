@@ -5,7 +5,7 @@ import prettier from 'eslint-config-prettier';
 import globals from 'globals';
 
 export default tseslint.config(
-  { ignores: ['dist', 'node_modules', 'coverage'] },
+  { ignores: ['dist', 'node_modules', 'coverage', 'test-results', 'playwright-report'] },
   js.configs.recommended,
   ...tseslint.configs.strictTypeChecked,
   ...tseslint.configs.stylisticTypeChecked,
@@ -26,8 +26,8 @@ export default tseslint.config(
     },
   },
   {
-    // Command-line tools run in Node.
-    files: ['tools/**/*.ts'],
+    // Command-line tools, end-to-end tests and config files run in Node.
+    files: ['tools/**/*.ts', 'e2e/**/*.ts', '*.config.ts'],
     languageOptions: { globals: { ...globals.node } },
   },
   {

@@ -58,9 +58,10 @@ const H = {
  * stage 1 has no hazards, stage 2 introduces stone, stage 3 ice; curse arrives
  * in act 2. The board resets at every stage; relics carry over.
  *
- * Stage 4 balance pass (docs/STUDY.md 4.7): shorter stages, more stones (board
- * pressure makes 'stuck' a real way to lose), a stone stage that needs ten
- * deliberate breaks, and score targets low enough to be possible without relics.
+ * Tuned in two passes (docs/STUDY.md 6.5 and 9.4): shorter stages, more stones
+ * (board pressure makes 'stuck' a real way to lose), a stone stage that needs ten
+ * deliberate breaks; the first score goal is reachable without relics, the later
+ * ones (2-보스, 3-3) expect a build, since a run holds 7–10 relics by then.
  */
 export const STAGE_TABLE: readonly StageSpec[] = [
   // Act 1: the tutorial. Merge (1), break stones on purpose (2), work around ice (3), seal (boss).
@@ -145,7 +146,7 @@ export const STAGE_TABLE: readonly StageSpec[] = [
   },
   {
     act: 2,
-    goal: { type: 'score', target: 800 },
+    goal: { type: 'score', target: 1050 },
     moveLimit: 110,
     hazards: {
       ...H.none,
@@ -192,7 +193,7 @@ export const STAGE_TABLE: readonly StageSpec[] = [
   },
   {
     act: 3,
-    goal: { type: 'score', target: 1000 },
+    goal: { type: 'score', target: 1500 },
     moveLimit: 110,
     hazards: {
       ...H.none,
@@ -243,29 +244,29 @@ export const RELIC_TUNING = {
   /** 연쇄 회로: extra merge passes per move. */
   chainDepth: 2,
   /** 공명 증폭기: bonus per extra merge in one move, as a fraction of that move's merge score. */
-  comboBonus: 0.5,
+  comboBonus: 0.3,
   /** 균열 송곳: merges of at least this value also break diagonal stones. */
   pickaxeMinValue: 8,
   /** 프리즘 코어: a prism replaces the regular spawn every this many moves. */
-  prismEvery: 10,
+  prismEvery: 12,
   /** 모서리 닻: score multiplier for merges on a corner cell. */
-  cornerFactor: 2,
+  cornerFactor: 1.5,
   /** 여분 태엽: extra moves per stage. */
   extraMoves: 6,
   /** 역상 필터: score multiplier for merges involving a frozen or cursed tile. */
   statusFactor: 3,
-  /** 잔해 연료: moves gained per stone broken. */
-  movesPerStone: 1,
+  /** 잔해 연료: one move back for every this-many stones broken (the rest carries over within a stage). */
+  stonesPerMove: 2,
   /** 쌍둥이 씨앗: added chance that a spawn is a 4. */
   fourChanceBonus: 0.1,
   /** 점화 플러그: value of the tile placed at stage start. */
-  igniteValue: 16,
+  igniteValue: 32,
   /** 지연 장막: added moves between boss triggers. */
   bossDelay: 2,
   /** 도약 렌즈: the first this-many merges of a stage double their result. */
-  lensMerges: 2,
+  lensMerges: 3,
   /** 축전 코일: merges needed per charge. */
-  mergesPerCharge: 12,
+  mergesPerCharge: 8,
   /** 정지 핀: moves a pinned tile stays frozen. */
   pinTurns: 3,
 } as const;

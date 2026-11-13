@@ -2,7 +2,7 @@
  * Every sound of the game, as data (see the layer format in synth.ts).
  *
  * Mixing rules used when tuning these by ear-less maths (peaks checked by
- * rendering them offline, see the stage 5 browser check):
+ * rendering them offline through the debug hook, `__neonRift.feedback.renderSound`):
  * - frequent sounds (slide, spawn, merge, UI) are short and quiet; rare ones
  *   (boss, stage end) are long and loud: loudness follows importance;
  * - nothing below ~45 Hz (phone speakers cannot play it, it only eats headroom);

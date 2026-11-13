@@ -1408,3 +1408,37 @@ button:focus-visible {
   animation-iteration-count: 1 !important;
   transition-duration: 1ms !important;
 }
+
+/* ---------------------------------------------------------------- update prompt */
+
+.update-toast {
+  position: absolute;
+  top: max(8px, env(safe-area-inset-top));
+  left: 0;
+  right: 0;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: max-content;
+  max-width: calc(100% - 2 * var(--gutter));
+  margin: 0 auto;
+  padding: 6px 6px 6px 14px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 179, 71, 0.7);
+  background: rgba(13, 13, 30, 0.97);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5);
+  font-size: 14px;
+  font-weight: 700;
+  animation: fade-in 220ms ease-out both;
+}
+
+.update-text {
+  white-space: nowrap;
+}
+
+.btn-compact {
+  min-height: 40px;
+  padding: 0 12px;
+  font-size: 14px;
+}

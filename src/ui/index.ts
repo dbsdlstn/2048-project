@@ -5,3 +5,4 @@ export * from './dom';
 export * from './hud';
 export * from './screens';
 export * from './gameScreen';
+export * from './updateToast';

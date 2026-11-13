@@ -6,18 +6,53 @@
       name="viewport"
       content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no"
     />
-    <meta name="theme-color" content="#0a0a12" />
-    <meta name="description" content="2048 합체 규칙에 로그라이크 빌드를 더한 퍼즐 게임" />
-    <title>Neon Rift</title>
+    <title>Neon Rift · 합쳐서 균열을 닫는 로그라이크 퍼즐</title>
+    <meta
+      name="description"
+      content="2048 합체 규칙에 방해 타일, 보스 규칙, 유물 빌드를 더한 로그라이크 퍼즐. 설치하면 오프라인으로도 플레이할 수 있어요."
+    />
+    <meta name="theme-color" content="#08080f" />
+    <meta name="color-scheme" content="dark" />
+
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="icon" href="/icons/favicon-32.png" sizes="32x32" type="image/png" />
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="네온 리프트" />
+
+    <!-- Link previews need absolute URLs. -->
+    <link rel="canonical" href="https://dbsdlstn.github.io/2048-project/" />
+    <meta property="og:type" content="website" />
+    <meta property="og:locale" content="ko_KR" />
+    <meta property="og:site_name" content="Neon Rift" />
+    <meta property="og:title" content="Neon Rift · 합쳐서 균열을 닫는 로그라이크 퍼즐" />
+    <meta
+      property="og:description"
+      content="2048 합체 규칙에 방해 타일, 보스 규칙, 유물 빌드를 더한 로그라이크 퍼즐"
+    />
+    <meta property="og:url" content="https://dbsdlstn.github.io/2048-project/" />
+    <meta property="og:image" content="https://dbsdlstn.github.io/2048-project/og-image.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta
+      property="og:image:alt"
+      content="Neon Rift: 균열이 가로지르는 회로 칩 엠블럼과 게임 제목"
+    />
+    <meta name="twitter:card" content="summary_large_image" />
+
     <!-- Paint the dark background before the stylesheet loads (no white flash). -->
     <style>
       html,
       body {
-        background: #0a0a12;
+        background: #08080f;
       }
     </style>
   </head>
   <body>
+    <noscript>이 게임은 자바스크립트가 필요해요.</noscript>
     <div id="app"></div>
     <script type="module" src="/src/main.ts"></script>
   </body>

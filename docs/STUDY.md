@@ -62,7 +62,19 @@
   - [7.10 접근성: 움직임 줄이기](#710-접근성-움직임-줄이기)
   - [7.11 프레임 시간 측정과 성능 예산](#711-프레임-시간-측정과-성능-예산)
   - [7.12 연출을 눈으로 검사하기: 고정 시드 + 시간 단계 + 밀착 인화](#712-연출을-눈으로-검사하기-고정-시드--시간-단계--밀착-인화)
-- [8. 설계 결정 기록](#8-설계-결정-기록)
+- [8. 6단계: 마감 — 설치, 배포, 검증, 균형, 소개](#8-6단계-마감--설치-배포-검증-균형-소개)
+  - [8.1 웹 앱 매니페스트와 코드로 그린 아이콘](#81-웹-앱-매니페스트와-코드로-그린-아이콘)
+  - [8.2 서비스 워커 생명주기와 프리캐시](#82-서비스-워커-생명주기와-프리캐시)
+  - [8.3 업데이트 전략: 플레이어가 고를 때만](#83-업데이트-전략-플레이어가-고를-때만)
+  - [8.4 CI/CD: GitHub Actions와 Pages](#84-cicd-github-actions와-pages)
+  - [8.5 e2e 테스트: 단위 테스트와 무엇이 다르고, 어떻게 결정적으로 만드나](#85-e2e-테스트-단위-테스트와-무엇이-다르고-어떻게-결정적으로-만드나)
+  - [8.6 유물 밸런스 2차 조정: 전후 숫자](#86-유물-밸런스-2차-조정-전후-숫자)
+  - [8.7 포트폴리오 README 쓰는 법](#87-포트폴리오-readme-쓰는-법)
+- [9. 마무리: 전체 지도, 읽는 순서, 확장 과제](#9-마무리-전체-지도-읽는-순서-확장-과제)
+  - [9.1 개념 지도: 무엇이 어디에 있나](#91-개념-지도-무엇이-어디에-있나)
+  - [9.2 코드 읽는 순서](#92-코드-읽는-순서)
+  - [9.3 확장 과제](#93-확장-과제)
+- [10. 설계 결정 기록](#10-설계-결정-기록)
 - [부록: 자주 쓰는 명령어](#부록-자주-쓰는-명령어)
 
 ---
@@ -120,9 +132,13 @@
 | `src/game/`   | 런 컨트롤러(화면 상태 기계), 프레젠터, 오늘의 도전, 디버그 훅, 연출 감독(`feedback.ts`)        | 3b단계 ✔, 4단계 저장·도전, 5단계 연출     |
 | `src/audio/`  | WebAudio로 합성한 효과음 (직접 쓴 신시사이저, 소리 표, 재생 결정 엔진)                         | 5단계 ✔                                   |
 | `src/save/`   | localStorage 저장(최고 기록, 본 안내, 설정, 오늘의 도전 기록, 진행 중인 런)                    | 4단계 ✔                                   |
-| `tests/`      | Vitest 단위 테스트 (나중에 Playwright 스모크 테스트)                                           | 1단계 ✔, 2·3a·3b단계에서 추가             |
-| `tools/`      | 개발용 명령줄 도구 (밸런스 봇 시뮬레이터 `npm run sim`)                                        | 3a단계 ✔                                  |
-| `docs/`       | 이 문서                                                                                        | 매 단계 갱신                              |
+| `src/pwa/`    | 서비스 워커(`sw.ts`), 캐시 결정(`cachePlan.ts`), 업데이트 흐름(`register.ts`)                  | 6단계 ✔                                   |
+| `tests/`      | Vitest 단위 테스트                                                                             | 1단계 ✔, 단계마다 추가                    |
+| `e2e/`        | Playwright 스모크 테스트(휴대폰 화면, 빌드 결과 대상)                                          | 6단계 ✔                                   |
+| `tools/`      | 시뮬레이터, 아이콘·스크린샷·README 표 생성, 프리캐시 Vite 플러그인                             | 3a단계 ✔, 6단계 확장                      |
+| `public/`     | 매니페스트, 생성된 아이콘·공유 이미지 (빌드 때 그대로 복사)                                    | 6단계 ✔                                   |
+| `.github/`    | GitHub Actions: `ci.yml`(검사), `deploy.yml`(Pages 배포)                                       | 6단계 ✔                                   |
+| `docs/`       | 이 문서, 외부 자료 조사, README 이미지(`media/`)                                               | 매 단계 갱신                              |
 
 1단계에서 만든 `src/core/` 파일:
 
@@ -135,6 +151,8 @@
 | `src/core/tile.ts`    | 타일 생성과 "합체 규칙"(합쳐지는가? 무엇이 되는가?)           |
 | `src/core/board.ts`   | 새 게임, 이동·합체, 타일 생성, 게임 오버 판정                 |
 | `src/core/index.ts`   | 코어의 공개 입구. 바깥에서는 여기서만 import                  |
+
+6단계에서 만들거나 크게 바꾼 파일은 8장 첫머리의 표에 있습니다.
 
 5단계에서 만들거나 크게 바꾼 파일:
 
@@ -173,7 +191,7 @@
 | `src/render/renderer.ts`    | `setMarks(marks, onShown)`: 보드 표시가 바뀌는 순간 HUD도 함께 바뀜                                                         |
 | `src/ui/*`                  | 메뉴 카드(이어하기/새로), 게임 방법·설정·확인 시트, 보드 아래 안내 자리, 예상 막대, 배너 즉시 퇴장                          |
 | `src/core/balance.ts`       | 새 스테이지 표, 부식자·혼돈 수치, 쌍둥이 씨앗 +10%                                                                          |
-| `src/core/board.ts`         | `cornerIndices`, `spawnInCorner` (점화 플러그가 빈 구석에 16을 놓음)                                                        |
+| `src/core/board.ts`         | `cornerIndices`, `spawnInCorner` (점화 플러그가 빈 구석에 타일을 놓음, 6단계부터 32)                                        |
 | `tools/simulate.ts`         | 실패 원인(이동 소진/막힘) 분리, 런당 이동 수, `--bots`, 거의 꽉 찼을 때 생성 위치를 평균 내는 구석 봇, 유물 없이 도는 줄    |
 
 3b단계에서 만들거나 크게 바꾼 파일:
@@ -1594,21 +1612,23 @@ export function deriveRules(relics: readonly RelicInstance[], base = BASE_TURN_R
 | 유물 (id)                   | 한 줄 설명                                                                  | 훅                        | 희귀도 |
 | --------------------------- | --------------------------------------------------------------------------- | ------------------------- | ------ |
 | 연쇄 회로 (`chain`)         | 합체로 생긴 타일이 같은 수와 맞닿으면 이어서 합체한다 (최대 2번)            | `modifyRules`             | 희귀   |
-| 공명 증폭기 (`resonance`)   | 한 이동에서 합체가 1번 더 날 때마다 그 이동의 합체 점수 +50%                | `onTurnEnd`               | 고급   |
+| 공명 증폭기 (`resonance`)   | 한 이동에서 합체가 1번 더 날 때마다 그 이동의 합체 점수 +30%                | `onTurnEnd`               | 고급   |
 | 균열 송곳 (`pickaxe`)       | 8 이상을 만든 합체는 대각선 이웃의 돌까지 부순다                            | `modifyRules`             | 고급   |
-| 프리즘 코어 (`prismCore`)   | 10번 이동할 때마다 어떤 숫자와도 합쳐지는 프리즘 타일이 나온다              | `onSpawn`                 | 희귀   |
-| 모서리 닻 (`cornerAnchor`)  | 네 구석 칸에서 일어난 합체는 점수 2배                                       | `onMerge`                 | 일반   |
+| 프리즘 코어 (`prismCore`)   | 12번 이동할 때마다 어떤 숫자와도 합쳐지는 프리즘 타일이 나온다              | `onSpawn`                 | 희귀   |
+| 모서리 닻 (`cornerAnchor`)  | 네 구석 칸에서 일어난 합체는 점수 1.5배                                     | `onMerge`                 | 일반   |
 | 여분 태엽 (`spareSpring`)   | 모든 스테이지의 이동 제한 +6                                                | `modifyRules`             | 일반   |
 | 분해 펄스 (`bomb`)          | [사용] 고른 타일 하나를 없앤다 · 스테이지마다 1회                           | 사용(파괴)                | 일반   |
 | 역행 코일 (`undo`)          | [사용] 직전 행동을 되돌린다 · 스테이지마다 1회                              | 사용(되돌리기)            | 희귀   |
 | 정지 핀 (`freezePin`)       | [사용] 고른 타일을 3턴 동안 얼려 고정한다 · 최대 2회, 스테이지마다 1회 충전 | 사용(얼리기)              | 고급   |
 | 역상 필터 (`reverseFilter`) | 얼음이나 저주가 붙은 타일이 낀 합체는 점수 3배                              | `onMerge`                 | 고급   |
-| 잔해 연료 (`debrisFuel`)    | 돌이 하나 부서질 때마다 이동 +1                                             | `onStoneBreak`            | 일반   |
-| 쌍둥이 씨앗 (`twinSeed`)    | 새로 나오는 타일이 4일 확률 +20%                                            | `modifyRules`             | 고급   |
-| 점화 플러그 (`ignition`)    | 스테이지를 시작할 때 16 타일 하나를 놓는다                                  | `onStageStart`            | 일반   |
+| 잔해 연료 (`debrisFuel`)    | 돌을 2개 부술 때마다 이동 +1                                                | `onStoneBreak`            | 일반   |
+| 쌍둥이 씨앗 (`twinSeed`)    | 새로 나오는 타일이 4일 확률 +10%                                            | `modifyRules`             | 고급   |
+| 점화 플러그 (`ignition`)    | 스테이지를 시작할 때 빈 구석 칸에 32 타일 하나를 놓는다                     | `onStageStart`            | 일반   |
 | 지연 장막 (`delayVeil`)     | 보스 규칙의 발동 간격 +2턴                                                  | `modifyRules`             | 고급   |
-| 도약 렌즈 (`leapLens`)      | 스테이지의 첫 2번 합체는 결과가 2배가 된다                                  | `onStageStart`, `onMerge` | 고급   |
-| 축전 코일 (`capacitor`)     | 합체 12번마다 사용 유물의 충전 +1                                           | `onTurnEnd`               | 고급   |
+| 도약 렌즈 (`leapLens`)      | 스테이지의 첫 3번 합체는 결과가 2배가 된다                                  | `onStageStart`, `onMerge` | 고급   |
+| 축전 코일 (`capacitor`)     | 합체 8번마다 사용 유물의 충전 +1                                            | `onTurnEnd`               | 고급   |
+
+(수치는 6단계 조정(8.6장) 뒤의 값입니다. 항상 최신인 표는 README에 있습니다. 게임 데이터에서 생성되기 때문입니다.)
 
 이름을 지목하지 않아도 생기는 조합의 예:
 
@@ -1638,7 +1658,7 @@ function offerContext(run: RunState, fromIndex: number): OfferContext {
 
 #### 연습 과제
 
-1. "점화 플러그"의 16이 무작위 칸이 아니라 "가장 큰 타일이 있는 구석"에 놓이게 바꿔 보세요. 4.7장의 유물 효과 표에서 이 유물의 수치가 어떻게 바뀌는지 `npm run sim`으로 확인해 보세요.
+1. "점화 플러그"의 타일이 무작위 칸이 아니라 "가장 큰 타일이 있는 구석"에 놓이게 바꿔 보세요. 4.7장의 유물 효과 표에서 이 유물의 수치가 어떻게 바뀌는지 `npm run sim`으로 확인해 보세요.
 2. 키워드 `'corner'`를 새로 만들고, 어떤 유물이 그것을 `grants`로 주고 어떤 유물이 그것을 `isUseful`에서 요구하게 할지 설계해 보세요. 이름 지목 없이 시너지를 만드는 연습입니다.
 3. 반대로, 일부러 나쁜 유물을 하나 만들어 보세요(예: "구석 합체 점수 2배, 단 구석이 아닌 합체는 0점"). 시뮬레이터에서 승률 차이가 크게 음수로 나오는지 확인해 봅니다.
 
@@ -2446,12 +2466,13 @@ function spawnAware(board: GameState, walls: ReadonlySet<number>): number {
 - **승률 36%는 목표(15~30%)보다 높습니다.** 원인은 분명합니다: 유물을 하나도 안 고르면 승률 0%, 무작위로 고르면 36%. 유물이 런 난이도의 대부분을 정합니다. 특히 점수 목표는 점수 배율 유물이 쌓이면 거의 늘 깨집니다(2-보스·3-3 100%). 점수 목표를 다시 올리면 "유물 없이 0%" 조건을 어깁니다. 두 목표가 서로 당기는 지점이고, 다음 조정은 스테이지 표가 아니라 **유물 수치**(점수 배율, 구조 유물의 충전) 쪽이어야 합니다.
 - **1막 92%, 무작위 13%**: 둘 다 목표에 조금 못 미칩니다. 3a단계와 같은 줄다리기(1막 보스를 어렵게 하면 둘 다 떨어짐)지만, 방해를 늘린 덕분에 간격이 67점 → 79점으로 벌어졌습니다.
 - **"막힘" 실패**: 스테이지 단독 표(유물 없음)에서는 1막 보스·2-3·3-1·3-보스에서 막힘이 실패의 주요 원인이 되었습니다(무작위 봇은 거의 전부). 런 안에서는 구조 유물(분해 펄스, 역행 코일)이 막힘을 살려 주기 때문에 구석 봇의 진 런은 여전히 이동 소진이 3/4입니다.
+- **후속**: 승률과 점수 스테이지의 긴장은 6단계에서 유물 수치와 점수 목표로 다시 맞췄습니다(8.6장).
 - **길이**: 1막 보스(83이동)와 3막 보스(147이동)는 막의 다른 스테이지보다 깁니다. 256 타일은 최소 120이동 가까이 필요해서, 마지막 보스를 130 아래로 만들려면 목표를 128로 낮춰야 하는데 그러면 유물이 쌓인 런에서 85% 넘게 깨져 긴장이 사라졌습니다.
 
 #### 연습 과제
 
 1. `npm run sim -- --bots corner`의 유물 표를 보고, 승률을 30% 아래로 낮출 유물 수치 하나를 골라 바꿔 보세요. 그 유물의 효과 점수와 전체 승률이 어떻게 바뀌나요?
-2. 2-보스(점수 800, 부식자)는 런 안에서 100%입니다. 부식자를 점수 목표가 아닌 다른 목표와 짝지을 수 있을까요? 타일 목표는 왜 안 되는지(가장 큰 타일을 깎으므로) 시뮬레이터로 확인해 보세요.
+2. 이 조정 당시 2-보스(점수 800, 부식자)는 런 안에서 100%였습니다(6단계에서 1050으로 올림, 8.6장). 부식자를 점수 목표가 아닌 다른 목표와 짝지을 수 있을까요? 타일 목표는 왜 안 되는지(가장 큰 타일을 깎으므로) 시뮬레이터로 확인해 보세요.
 3. 봇의 `CAREFUL_EMPTY`를 4에서 6으로 바꾸면 구석 봇이 얼마나 강해지고 얼마나 느려지나요? 봇의 강도가 밸런스 결론을 얼마나 바꾸는지 생각해 보세요.
 
 ### 6.6 화면이 서로 어긋나지 않게: 이번 단계의 UX 수정
@@ -3058,9 +3079,577 @@ for (const t of [0, 50, 100, 140, 180, 230, 290, 360, 450, 600, 800]) {
 1. 같은 시나리오를 움직임 줄이기 켜고/끄고 찍어 나란히 놓아 보세요. "정보는 남는다"가 사실인지 칸마다 확인해 보세요.
 2. 밀착 인화 한 장을 보고 "이 연출은 사건의 중요도에 비해 크다/작다"를 하나씩 판정하는 채점표를 만들어 보세요.
 
+## 8. 6단계: 마감 — 설치, 배포, 검증, 균형, 소개
+
+게임은 5단계에서 완성됐습니다. 6단계는 **남에게 내놓는 일**입니다: 휴대폰에 설치되고 오프라인으로도 돌아가게(PWA), 커밋하면 자동으로 검사·배포되게(CI/CD), 실제 브라우저에서 부품이 제대로 이어졌는지 자동으로 확인하게(e2e), 유물이 런을 대신 깨 주지 않게(밸런스 2차), 그리고 처음 보는 사람이 1분 안에 이해하게(README).
+
+이번 단계에서 만들거나 크게 바꾼 파일:
+
+| 파일                                                            | 내용                                                                                                |
+| --------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| `public/manifest.webmanifest`                                   | 웹 앱 매니페스트: 한국어 이름, `standalone`, 세로, 색, 상대 경로 `start_url`/`scope`, 아이콘        |
+| `public/icons/*`, `public/favicon.svg`, `og-image`              | 코드로 그린 아이콘(192, 512, 마스커블 512, 애플 180, 파비콘)과 공유 미리보기 이미지                 |
+| `src/pwa/sw.ts`                                                 | 서비스 워커: 설치 때 프리캐시, 활성화 때 옛 캐시 삭제, 캐시 우선 응답, 대기 중 "넘겨받기" 메시지    |
+| `src/pwa/cachePlan.ts`                                          | 워커의 순수한 결정들(캐시 이름, 지울 캐시, 요청 → 캐시 파일). Node에서 테스트                       |
+| `src/pwa/register.ts`                                           | `UpdateFlow`: 등록, 새 버전 감지, 플레이어가 누를 때만 교체·새로고침, 한 시간에 한 번 업데이트 확인 |
+| `src/ui/updateToast.ts`                                         | "새 버전이 있어요 · 나중에 · 새로고침" 안내                                                         |
+| `tools/vite-precache.ts`                                        | Vite 플러그인: `sw.js`를 독립 파일로 빌드하고, 빌드 파일 목록과 내용 해시를 넣음                    |
+| `tools/icons.ts`, `tools/chromium.ts`                           | 아이콘·공유 이미지를 SVG로 그려 Playwright Chromium으로 PNG 변환 (`npm run icons`)                  |
+| `index.html`                                                    | 제목·설명, 매니페스트, 아이콘, iOS 메타 태그, Open Graph, `theme-color`                             |
+| `.github/workflows/ci.yml`, `deploy.yml`                        | 검사(린트·포맷·테스트·빌드·e2e)와 GitHub Pages 배포                                                 |
+| `playwright.config.ts`, `e2e/*`                                 | 휴대폰 화면 e2e: 스와이프 → 1-1 클리어 → 유물 → 새로고침 → 이어하기, 오프라인 새로고침              |
+| `src/core/balance.ts`, `src/core/relics.ts`                     | 유물 수치 조정, 잔해 연료를 "돌 2개당 이동 1"로, 2-보스·3-3 점수 목표 1050·1500                     |
+| `tools/simulate.ts`                                             | 점수 스테이지를 "점수 유물 있음/없음"으로 나눈 줄, 기록에 단계별 선택과 마지막 스테이지 점수        |
+| `README.md`, `tools/readme-tables.ts`, `tools/capture-media.ts` | 포트폴리오 README, 게임 데이터로 만드는 규칙 표(+ 낡으면 실패하는 테스트), 스크린샷 촬영 스크립트   |
+
+### 8.1 웹 앱 매니페스트와 코드로 그린 아이콘
+
+#### 왜 필요한가
+
+브라우저가 웹 페이지를 "앱"으로 설치하게 해 주려면 **이 앱이 무엇인지**를 알려 주는 파일이 필요합니다. 이름(홈 화면에 보일 짧은 이름), 아이콘, 시작 주소, 열리는 모양(주소창 없는 `standalone`), 화면 방향, 스플래시 배경색 같은 것들입니다. 이것이 **웹 앱 매니페스트**(`manifest.webmanifest`)이고, HTML에서 `<link rel="manifest">`로 연결합니다.
+
+iOS Safari는 매니페스트를 일부만 읽기 때문에 `apple-touch-icon`과 `apple-mobile-web-app-*` 메타 태그를 따로 둡니다. 링크를 메신저나 SNS에 붙였을 때 보이는 카드는 **Open Graph** 태그(`og:title`, `og:image` …)가 정합니다.
+
+아이콘은 그림 파일이지만 이 프로젝트는 "에셋 0"을 지켜 왔습니다. 그래서 아이콘도 **코드로 그리고**, 결과 PNG만 저장소에 넣습니다. 다시 그릴 일이 생기면 스크립트를 한 번 돌리면 됩니다.
+
+#### 어디에 쓰였나
+
+- `public/manifest.webmanifest` — `public/`의 파일은 빌드할 때 그대로 `dist/`에 복사됩니다
+- `index.html` — 매니페스트·아이콘 링크, iOS 메타 태그, Open Graph, `theme-color`(주소창·상태 표시줄 색)
+- `tools/icons.ts` — 엠블럼(깎인 모서리 칩 + 회로선 + 그것을 가르는 주황 균열)을 SVG 문자열로 만들고, Playwright의 Chromium으로 열어 크기별로 스크린샷
+- `tests/pwa.test.ts` — 매니페스트의 경로가 `/2048-project/` 안에 있는지, 적힌 아이콘 파일이 실제로 있는지, 마스커블 아이콘이 있는지
+
+#### 핵심 코드
+
+```json
+// public/manifest.webmanifest (일부)
+{
+  "id": "./",
+  "name": "네온 리프트 (Neon Rift)",
+  "short_name": "네온 리프트",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "theme_color": "#08080f",
+  "background_color": "#08080f"
+}
+```
+
+`start_url`과 `scope`가 **상대 경로**인 점이 중요합니다. 상대 경로는 "매니페스트 파일이 있는 곳" 기준으로 풀리므로, 사이트가 `https://dbsdlstn.github.io/2048-project/`에 있으면 `/2048-project/`가 되고, 로컬 미리보기(`localhost:4173/2048-project/`)에서도 맞습니다. `/`라고 쓰면 도메인 루트(다른 저장소의 페이지들)까지 범위가 넓어져 버립니다.
+
+**마스커블 아이콘**: 안드로이드 런처는 아이콘을 원·둥근 사각형 등으로 잘라 냅니다. 잘려도 안전한 영역은 가운데 지름 80% 원입니다. 그래서 마스커블 아이콘은 배경을 끝까지 채우고 엠블럼은 0.78배로 줄여 그 원 안에 둡니다.
+
+```ts
+// tools/icons.ts — 같은 SVG를 크기별로 래스터화
+const browser = await chromium.launch(chromiumOptions());
+const page = await browser.newPage();
+for (const out of outputs) {
+  await page.setViewportSize({ width: out.width, height: out.height });
+  await page.setContent(`<!doctype html><html><body style="margin:0">${svg}</body></html>`);
+  const png = await page.screenshot({
+    clip: { x: 0, y: 0, width: out.width, height: out.height },
+    omitBackground: out.transparent ?? false, // 둥근 아이콘·파비콘은 바깥을 투명하게
+  });
+  writeFileSync(join(PUBLIC, out.file), png);
+}
+```
+
+#### 연습 과제
+
+1. 크롬 개발자 도구 → Application → Manifest에서 경고를 확인하고, `start_url`을 `/`로 바꾸면 무엇이 달라지는지 보세요.
+2. `tools/icons.ts`의 `rift` 좌표를 바꿔 균열 모양을 다시 그리고 `npm run icons`로 결과를 비교해 보세요. 32px 파비콘에서도 균열이 읽히나요?
+3. [maskable.app](https://maskable.app)에 `maskable-512.png`를 올려 원·물방울 모양으로 잘렸을 때 엠블럼이 잘리지 않는지 확인해 보세요.
+
+### 8.2 서비스 워커 생명주기와 프리캐시
+
+#### 왜 필요한가
+
+오프라인에서 게임을 열면 브라우저는 서버에 `index.html`을 요청하다 실패합니다. **서비스 워커**는 페이지와 네트워크 사이에 끼는 작은 스크립트로, 페이지의 요청(`fetch`)을 가로채 캐시에서 대답할 수 있습니다. 미리 빌드 파일 전부를 캐시에 받아 두면(**프리캐시**) 비행기 모드에서도 게임이 열립니다.
+
+서비스 워커는 페이지와 수명이 다릅니다. 이 **생명주기**를 이해하는 것이 핵심입니다.
+
+```
+ register(sw.js)
+     │
+     ▼
+ installing ── install 이벤트: 이번 빌드의 파일을 새 캐시에 전부 받기
+     │
+     ▼
+ installed(waiting) ── 옛 워커가 아직 열린 페이지를 맡고 있으면 여기서 기다림
+     │   (옛 워커가 없거나, skipWaiting() 하면 통과)
+     ▼
+ activating ── activate 이벤트: 옛 버전의 캐시 지우기, clients.claim()
+     │
+     ▼
+ activated ── fetch 이벤트를 받아 캐시에서 대답
+```
+
+브라우저는 페이지를 열 때(그리고 우리가 `update()`를 부를 때) `sw.js`를 다시 받아 **한 바이트라도 다르면** 새 버전으로 보고 설치를 시작합니다. 그래서 "빌드가 바뀌면 `sw.js`도 반드시 바뀌어야" 합니다.
+
+#### 어디에 쓰였나
+
+- `src/pwa/sw.ts` — 이벤트 연결(설치·활성화·메시지·fetch)
+- `src/pwa/cachePlan.ts` — 결정만 하는 순수 함수(캐시 이름, 지울 캐시, 요청에 대답할 파일)
+- `tools/vite-precache.ts` — `sw.js`를 독립 파일로 빌드하고 `__PRECACHE_MANIFEST__` 자리에 `{ version, files }`를 넣음
+- `vite.config.ts` — 플러그인 등록, 프리캐시에서 뺄 파일(512 아이콘, 공유 이미지)
+- `tests/pwa.test.ts` — 캐시 결정 함수의 단위 테스트
+
+#### 핵심 코드
+
+빌드 쪽: 번들의 모든 파일과 `public/`의 파일을 모아 **내용 해시**를 만들고, 그것을 버전으로 씁니다. 어떤 파일이든 바뀌면 해시가 바뀌고 → `sw.js`가 바뀌고 → 브라우저가 새 버전을 알아챕니다.
+
+```ts
+// tools/vite-precache.ts (generateBundle, enforce: 'post'라 index.html까지 들어온 뒤)
+const files = [...contents.keys()].filter((f) => !options.exclude?.(f)).sort();
+const hash = createHash('sha256');
+for (const f of files)
+  hash
+    .update(f)
+    .update('\0')
+    .update(contents.get(f) ?? '');
+const manifest = { version: hash.digest('hex').slice(0, 12), files };
+sw.code = parts.join(JSON.stringify(manifest)); // __PRECACHE_MANIFEST__ 자리에
+```
+
+워커 쪽: 설치 때 받고, 활성화 때 옛 캐시를 지우고, 요청에는 캐시로 대답합니다.
+
+```ts
+// src/pwa/sw.ts
+worker.addEventListener('install', (event) => {
+  event.waitUntil(
+    caches.open(CACHE).then((cache) =>
+      // `reload`: HTTP 캐시를 건너뛰어 낡은 사본이 새 캐시에 들어가지 않게
+      cache.addAll(manifest.files.map((f) => new Request(new URL(f, scope), { cache: 'reload' }))),
+    ),
+  );
+});
+
+worker.addEventListener('fetch', (event) => {
+  const request = event.request;
+  if (request.method !== 'GET') return;
+  const path = cachedPathFor(new URL(request.url), scope, files, request.mode === 'navigate');
+  if (path === null) return; // 모르는 요청은 손대지 않고 네트워크로
+  event.respondWith(
+    caches
+      .open(CACHE)
+      .then((c) => c.match(new URL(path, scope).href))
+      .then((hit) => hit ?? fetch(request)),
+  );
+});
+```
+
+```ts
+// src/pwa/cachePlan.ts — 페이지 이동은 전부 앱 셸(index.html)로
+if (url.origin !== scope.origin || !url.pathname.startsWith(scope.pathname)) return null;
+const path = url.pathname.slice(scope.pathname.length);
+if (navigate || path === '') return files.has('index.html') ? 'index.html' : null;
+return files.has(path) ? path : null;
+```
+
+`?debug&seed=7`처럼 쿼리가 붙은 주소도 같은 `index.html`로 대답합니다. 쿼리는 스크립트가 읽기 때문입니다.
+
+**왜 플러그인을 안 썼나**(D73): `vite-plugin-pwa`(Workbox)는 검증된 선택입니다. 하지만 이 게임은 한 페이지, 파일 8개라 필요한 것은 "목록 받기 + 옛 캐시 지우기 + 캐시 우선" 세 가지뿐이고, 직접 쓰면 주석 포함 80줄에 **생명주기를 눈으로 볼 수 있습니다**. 대신 실수하기 쉬운 곳(캐시 무효화)은 내용 해시로 기계적으로 처리하고, 워커가 페이지와 모듈을 공유하면 빌드가 실패하게 했습니다(워커는 독립된 한 파일이어야 함).
+
+> TypeScript 메모: 이 프로젝트의 `tsconfig`는 DOM 라이브러리를 씁니다. 워커 전용 타입(`FetchEvent` 등)은 DOM과 함께 켜면 충돌하므로, `sw.ts` 안에 필요한 몇 개만 작은 인터페이스로 선언했습니다.
+
+#### 연습 과제
+
+1. `npm run build && npm run preview`로 열고 개발자 도구 → Application → Service workers / Cache storage에서 캐시 이름과 파일 목록을 확인하세요. Network 탭에서 "Offline"을 켜고 새로고침해 보세요.
+2. `cachedPathFor`에 "이미지는 네트워크 우선, 실패하면 캐시" 같은 다른 전략을 넣으려면 어떤 정보가 더 필요할까요? 테스트부터 써 보세요.
+3. `vite.config.ts`의 `exclude`에서 512 아이콘을 빼면 프리캐시 크기가 얼마나 늘어나는지 `dist/sw.js`에서 확인해 보세요.
+
+### 8.3 업데이트 전략: 플레이어가 고를 때만
+
+#### 왜 필요한가
+
+서비스 워커가 캐시에서 대답한다는 것은, 새 버전을 배포해도 **이미 설치한 사람은 옛 버전을 본다**는 뜻입니다. 방법은 두 가지입니다.
+
+- **즉시 교체**(`skipWaiting()`을 설치 때 바로 호출): 새 워커가 곧장 넘겨받습니다. 하지만 열려 있는 페이지는 옛 JS로 돌고 있는데 캐시는 새 파일로 바뀌어, 페이지가 나중에 파일을 더 받을 때 버전이 섞일 수 있습니다. 넘겨받은 순간 자동 새로고침을 하면 **런 도중에 화면이 갑자기 다시 뜹니다**.
+- **기다렸다가 묻기**(이 게임의 선택, D74): 새 워커는 `waiting`에서 기다리고, 페이지가 "새 버전이 있어요 · 새로고침"을 보여 줍니다. 플레이어가 누르면 그때 넘겨받고 새로고침합니다. 런은 매 이동마다 저장되므로 새로고침 뒤 "이어하기"로 정확히 같은 상태에서 계속합니다.
+
+함정이 하나 있습니다. **첫 설치**도 `clients.claim()`으로 페이지를 넘겨받으며 `controllerchange` 이벤트를 냅니다. 이것을 "업데이트"로 착각해 새로고침하면 처음 방문한 사람의 화면이 한 번 깜빡입니다. 그래서 "플레이어가 새로고침을 눌렀을 때만" 새로고침합니다.
+
+#### 어디에 쓰였나
+
+- `src/pwa/register.ts` — `UpdateFlow`: 브라우저 객체를 작은 인터페이스(`ContainerLike`, `RegistrationLike`, `WorkerLike`)로 받음
+- `src/ui/updateToast.ts` — 안내 DOM (`role="status"`, 나중에/새로고침)
+- `src/main.ts` — 프로덕션 빌드에서만 등록, 화면이 다시 보일 때 업데이트 확인
+- `tests/pwa.test.ts` — 가짜 컨테이너·등록·워커로 흐름 네 가지를 검사
+
+#### 핵심 코드
+
+```ts
+// src/pwa/register.ts
+container.addEventListener('controllerchange', () => {
+  // 첫 설치도 clients.claim()으로 넘겨받는다: 요청했을 때만 새로고침
+  if (this.applying) this.options.reload();
+});
+const reg = await container.register(this.options.url, { scope: this.options.scope });
+// 게임을 닫아 둔 사이에 설치를 마친 버전이 이미 기다리고 있을 수 있다
+if (reg.waiting && container.controller) this.options.onUpdateReady();
+reg.addEventListener('updatefound', () => {
+  const next = reg.installing;
+  next?.addEventListener('statechange', () => {
+    // controller가 없으면 첫 설치이지 업데이트가 아니다
+    if (next.state === 'installed' && container.controller) this.options.onUpdateReady();
+  });
+});
+
+apply(): void {
+  this.applying = true;
+  this.registration?.waiting?.postMessage(SKIP_WAITING_MESSAGE); // 워커가 skipWaiting()
+}
+```
+
+```ts
+// tests/pwa.test.ts — 브라우저 없이 흐름을 검사
+it('a new version waits for the player, then takes over and reloads once', async () => {
+  const { container, flow, log } = setup({}); // 이미 옛 워커가 맡고 있는 페이지
+  await flow.start();
+  const next = container.reg.deliver(); // 새 버전 설치 완료
+  expect(log.ready).toBe(1); // 안내가 뜸
+  flow.apply(); // 플레이어가 새로고침을 누름
+  expect(next.messages).toEqual([SKIP_WAITING_MESSAGE]);
+  expect(log.reloads).toBe(0); // 넘겨받기 전에는 아직
+  container.takeOver();
+  expect(log.reloads).toBe(1);
+});
+```
+
+실제 브라우저에서는 회귀 검사 스크립트가 같은 흐름을 확인했습니다: 런 도중 `sw.js`만 바뀐 빌드로 서버를 바꾸고 `update()` → 안내가 뜨고 페이지는 그대로(심어 둔 표시 값이 살아 있음) → 계속 이동 가능 → "새로고침" → 캐시가 새 버전 하나만 남음 → "이어하기"가 같은 보드.
+
+#### 연습 과제
+
+1. 두 번째 탭을 열어 둔 채 업데이트하면 어떻게 될까요? 한쪽에서 새로고침을 누르면 다른 탭에는 무슨 일이 생기는지 생각해 보고 `controllerchange`로 확인해 보세요.
+2. `UPDATE_CHECK_INTERVAL`을 1분으로 줄였을 때의 장단점(배터리, 서버 요청)을 적어 보세요.
+3. 결과 화면(런이 끝난 뒤)에서는 묻지 않고 바로 새로고침해도 될까요? `UpdateFlow`에 그 규칙을 넣고 테스트를 추가해 보세요.
+
+### 8.4 CI/CD: GitHub Actions와 Pages
+
+#### 왜 필요한가
+
+"내 컴퓨터에서는 됐는데"를 없애려면, 모든 커밋을 **깨끗한 기계에서 같은 명령으로** 검사해야 합니다. 이것이 CI(지속적 통합)입니다. 그리고 `main`에 들어간 코드가 사람 손을 거치지 않고 사이트에 올라가게 하는 것이 CD(지속적 배포)입니다. GitHub Actions는 저장소의 `.github/workflows/*.yml`을 읽어 GitHub의 가상 머신에서 명령을 실행합니다.
+
+#### 어디에 쓰였나
+
+- `.github/workflows/ci.yml` — 모든 push와 PR: 설치 → 린트 → 포맷 검사 → 단위 테스트 → 빌드(+ 번들 크기를 요약에 기록), 그리고 따로 e2e 작업
+- `.github/workflows/deploy.yml` — `main`에 push될 때와 수동 실행: 테스트 → 빌드 → Pages에 올리기
+- `package.json`의 `engines` — Node 22.13 이상(Vitest 5, ESLint 10의 요구 사항). 워크플로는 Node 22를 씁니다
+- `vite.config.ts`의 `base: '/2048-project/'`
+
+#### 핵심 코드
+
+```yaml
+# .github/workflows/deploy.yml (요약)
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:          # Actions 탭에서 손으로 실행
+
+permissions:                  # 이 작업에 필요한 최소 권한만
+  contents: read
+  pages: write                # Pages에 올리기
+  id-token: write             # 배포 요청의 신원 증명(OIDC)
+
+concurrency:
+  group: pages
+  cancel-in-progress: false   # 진행 중인 배포는 끝까지
+
+jobs:
+  build:
+    if: github.ref == 'refs/heads/main'   # 수동 실행은 아무 브랜치에서나 가능하므로 막음
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with: { node-version: 22, cache: npm }   # ~/.npm 캐시: 두 번째부터 설치가 빠름
+      - run: npm ci                              # package-lock.json 그대로 설치
+      - run: npm run test
+      - run: npm run build
+      - uses: actions/configure-pages@v6
+      - uses: actions/upload-pages-artifact@v5   # dist/를 Pages용 묶음으로
+        with: { path: dist }
+  deploy:
+    needs: build
+    environment: { name: github-pages, url: ${{ steps.deployment.outputs.page_url }} }
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v5
+```
+
+각 단계가 하는 일:
+
+| 단계                    | 하는 일                                                                                  |
+| ----------------------- | ---------------------------------------------------------------------------------------- |
+| `checkout`              | 저장소 코드를 가상 머신에 받기                                                           |
+| `setup-node` + `cache`  | Node 설치, `package-lock.json` 해시를 열쇠로 npm 캐시 복원                               |
+| `npm ci`                | 잠금 파일과 정확히 같은 버전으로 설치(잠금 파일과 `package.json`이 어긋나면 실패)        |
+| `configure-pages`       | Pages 설정을 읽어 둠(사이트 주소 등)                                                     |
+| `upload-pages-artifact` | `dist/`를 tar로 묶어 이 실행의 산출물로 올림                                             |
+| `deploy-pages`          | 그 산출물을 실제 사이트로 공개. `github-pages` 환경은 기본적으로 기본 브랜치만 배포 허용 |
+
+**base 경로가 왜 중요한가**: GitHub Pages의 프로젝트 사이트는 `https://<사용자>.github.io/<저장소>/`에 올라갑니다. 빌드된 `index.html`이 `/assets/index.js`를 부르면 도메인 루트에서 찾다가 404가 납니다. `base: '/2048-project/'`로 빌드하면 Vite가 모든 경로 앞에 `/2048-project/`를 붙입니다. 서비스 워커의 범위, 매니페스트의 `start_url`도 같은 경로 안에 있어야 합니다(8.1, 8.2).
+
+**정직한 메모**: 이 두 워크플로는 이 저장소에서 아직 한 번도 실행되지 않았습니다. 액션 이름·버전이 실제로 있는지, 문법은 `actionlint`로 확인했지만, 진짜 확인은 첫 실행입니다.
+
+#### 연습 과제
+
+1. `ci.yml`에 번들 크기 상한(예: gzip 60KB를 넘으면 실패)을 넣어 보세요. 지금 요약에 크기를 적는 단계를 고치면 됩니다.
+2. e2e 작업을 `needs: check`로 바꾸면 무엇이 좋아지고 무엇이 느려지나요?
+3. 배포 워크플로에서 `npm run test`를 빼면 어떤 위험이 생기나요? 반대로 CI가 이미 같은 커밋을 검사했다면 왜 다시 하는 걸까요?
+
+### 8.5 e2e 테스트: 단위 테스트와 무엇이 다르고, 어떻게 결정적으로 만드나
+
+#### 왜 필요한가
+
+단위 테스트 318개는 규칙과 부품을 하나씩 검사합니다. 하지만 "스와이프가 실제로 컨트롤러에 닿는가", "저장이 새로고침을 견디는가", "서비스 워커가 정말 오프라인에서 대답하는가"는 **부품을 다 조립한 진짜 브라우저**에서만 보입니다. 이것이 e2e(end-to-end) 테스트입니다.
+
+|             | 단위 테스트 (Vitest)  | e2e (Playwright)                             |
+| ----------- | --------------------- | -------------------------------------------- |
+| 대상        | 함수·클래스 하나      | 빌드된 앱 전체 + 실제 브라우저               |
+| 속도        | 318개에 약 1초        | 2개에 약 3초 (+ 빌드)                        |
+| 잘 잡는 것  | 규칙 오류, 경계값     | 연결 누락, 저장/복원, 서비스 워커, 실제 입력 |
+| 실패했을 때 | 어느 함수인지 바로 앎 | 어디서 끊겼는지 찾아야 함(추적 파일이 도움)  |
+| 흔들림      | 거의 없음             | 시간·애니메이션·네트워크 때문에 생기기 쉬움  |
+
+그래서 e2e는 **짧게, 가장 중요한 흐름 두 개만** 둡니다.
+
+**흔들리지 않게(결정적으로) 만드는 방법**
+
+1. **시드 고정**: `?seed=42`면 매번 같은 타일이 같은 칸에 나옵니다.
+2. **기준(oracle)은 코어**: 테스트는 Node에서 같은 시드로 순수 코어를 돌려 "이 방향들을 누르면 이 격자가 되어야 한다"를 먼저 계산하고, 브라우저가 실제 입력으로 정확히 같은 격자에 도착하는지 봅니다. 손으로 적은 기댓값이 없어 밸런스 숫자가 바뀌어도 테스트를 고칠 일이 없습니다.
+3. **잠자기 없음**: `waitForTimeout` 대신 디버그 훅의 `settle()`로 애니메이션을 끝으로 보내고, 상태는 `expect.poll`로 기다립니다.
+4. **실제 입력**: 처음 네 번은 진짜 포인터 스와이프, 나머지는 방향키.
+
+#### 어디에 쓰였나
+
+- `playwright.config.ts` — 휴대폰(Pixel 7) 화면, `webServer`가 빌드 후 `vite preview`를 띄움, 이 샌드박스에서는 미리 설치된 Chromium(`tools/chromium.ts`), CI에서는 `npx playwright install --with-deps chromium`으로 받은 브라우저
+- `e2e/run.spec.ts` — 테스트 두 개
+- `e2e/helpers.ts` — `open`, `settle`, `grid`, `swipe`
+
+#### 핵심 코드
+
+```ts
+// e2e/run.spec.ts — 같은 시드를 코어로 먼저 둔다
+function referencePlan(): { dirs: Direction[]; grids: number[][][] } {
+  const order: Direction[] = ['down', 'left', 'right', 'up'];
+  let run: RunState = startRun('run', SEED).run;
+  const dirs: Direction[] = [];
+  const grids: number[][][] = [];
+  while (run.status === 'playing') {
+    const dir = order.find((d) => runDirections(run).includes(d));
+    if (!dir) break;
+    run = runMove(run, dir).run;
+    dirs.push(dir);
+    grids.push(toValueGrid(run.board));
+  }
+  if (run.status !== 'offer')
+    throw new Error(`seed ${SEED}: the reference plan does not clear 1-1`);
+  return { dirs, grids };
+}
+
+// 브라우저: 실제 입력 → 애니메이션 끝내기 → 격자 비교
+for (const [i, dir] of plan.dirs.entries()) {
+  if (i < 4) await swipe(page, dir);
+  else await page.keyboard.press(KEY[dir]);
+  await settle(page);
+  expect(await grid(page), `after move ${i + 1} (${dir})`).toEqual(plan.grids[i]);
+}
+```
+
+```ts
+// 오프라인: 한 번 방문 → 워커가 페이지를 맡을 때까지 → 네트워크 끊고 새로고침
+await expect
+  .poll(() => page.evaluate(() => navigator.serviceWorker.controller !== null))
+  .toBe(true);
+await context.setOffline(true);
+await page.reload();
+```
+
+Lighthouse는 PWA 점검 항목을 없앴습니다(12.x, RESEARCH.md 참고). 그래서 설치 가능성과 오프라인 동작은 이렇게 Playwright로 직접 확인합니다(회귀 검사에서는 CDP의 `Page.getAppManifest`, `Page.getInstallabilityErrors`도 썼습니다).
+
+**Playwright 버전 고정**(D78): `@playwright/test`는 버전마다 맞는 Chromium 빌드가 정해져 있습니다. 이 샌드박스에 미리 설치된 Chromium(빌드 1243)에 맞는 1.63.0으로 정확히 고정했습니다. CI는 같은 버전의 브라우저를 내려받습니다.
+
+#### 연습 과제
+
+1. `--repeat-each 10`으로 돌려 흔들림이 없는지 확인해 보세요. `settle()` 호출을 지우면 몇 번째에 실패하나요?
+2. 무한 모드 게임 오버(더 움직일 수 없음 → 결과 화면 → 다시 하기)를 e2e로 추가해 보세요. `load()`로 거의 꽉 찬 보드를 만들면 짧아집니다.
+3. 같은 테스트를 `devices['iPhone 13']`(WebKit)으로도 돌리려면 설정에 무엇을 추가해야 할까요?
+
+### 8.6 유물 밸런스 2차 조정: 전후 숫자
+
+#### 왜 필요한가
+
+4단계의 결론(6.5장, D57)은 "다음 조정은 유물 수치 쪽이어야 한다"였습니다. 숫자가 그 이유를 보여 줬습니다: 구석 봇 승률 36%(목표 15~30%), 유물을 하나도 안 고르면 0%, 그리고 점수 스테이지(2-보스 800, 3-3 1000)는 **런 안에서 100%**. 실제 플레이에서도 점수 유물이 쌓이면 점수 목표는 긴장 없이 깨졌습니다.
+
+#### 어디에 쓰였나
+
+- `src/core/balance.ts` — `RELIC_TUNING`, 2-보스·3-3의 점수 목표
+- `src/core/relics.ts` — 잔해 연료를 카운터 방식으로
+- `tools/simulate.ts` — 점수 스테이지를 "점수 유물 있음/없음"으로 나눈 줄
+- 조정 실험은 저장소 밖 임시 스크립트(수치를 메모리에서 바꿔 4프로세스로 병렬 실행, 400~500런 한 번에 약 8초)
+
+#### 핵심 코드
+
+**먼저 원인을 쟀습니다.** 점수 스테이지의 점수 분포를 유물 하나씩 붙여 재 보니(구석 봇, 목표를 없애고 이동 제한까지):
+
+| 2-1 (점수 700/90)  | 평균 점수 | p10~p90  | 700 이상 |
+| ------------------ | --------- | -------- | -------- |
+| 유물 없음          | 705       | 644~768  | 46%      |
+| 공명 증폭기 (+50%) | 981       | 855~1110 | 100%     |
+| 모서리 닻 (2배)    | 910       | 818~1028 | 100%     |
+| 역상 필터 (3배)    | 846       | 740~978  | 98%      |
+| 여분 태엽 (+6)     | 760       | 692~878  | 86%      |
+
+2048의 점수는 이동 수에 거의 비례해서 **분포가 좁습니다**(p10~p90이 ±10%). 그래서 +10%짜리 유물 하나만 있어도 클리어율이 46% → 90%로 뛰고, 점수 유물(+30~40%)은 확정 클리어가 됩니다. 게다가 2-보스에 도착한 런은 유물을 7개, 3-3에서는 10개 들고 있습니다. **"유물 없이도 가능한 목표"와 "유물 10개를 든 런에 긴장이 있는 목표"는 같은 숫자일 수 없습니다.**
+
+**바꾼 것**
+
+| 바꾼 것                                 | 이유                                                                                     |
+| --------------------------------------- | ---------------------------------------------------------------------------------------- |
+| 공명 증폭기 +50% → +30%                 | 혼자 점수 +34~40%. 점수 유물 하나가 목표를 확정하지 않게                                 |
+| 모서리 닻 2배 → 1.5배                   | 구석에 큰 타일을 모으는 플레이와 겹쳐 혼자 점수 +27~48%                                  |
+| 프리즘 코어 10 → 12이동마다             | 유물 효과 +17점으로 가장 셈(희귀라 강한 건 괜찮지만 조금 덜)                             |
+| 잔해 연료 돌 1개당 이동 1 → **2개당 1** | 돌이 많은 2-보스에서 혼자 점수 +30%(이동이 늘어서), 효과 +12점. 남는 1개는 카운터로(D80) |
+| 점화 플러그 16 → 32                     | 점수 목표를 올린 중간 실험에서 효과 −8~−11점. 32는 64 목표의 절반이라 체감이 분명        |
+| 도약 렌즈 첫 2번 → 3번                  | 효과 −4~−8점(조정 전과 중간 실험)                                                        |
+| 축전 코일 합체 12번 → 8번               | 효과 −6점, 중간 실험 −13~−19점(봇이 사용 유물을 막혔을 때만 써서 낮게 잡히는 몫도 있음)  |
+| 2-보스 점수 800 → 1050, 3-3 1000 → 1500 | 런 안의 점수 분포(p10~p25)에 맞춤. 2-1(700)은 유물 없이도 되는 첫 점수 스테이지로 둠     |
+
+균열 송곳은 4(사실상 모든 합체)로 낮추는 안도 시험했지만 효과가 잡음 범위 안이라 8로 두었습니다. 역상 필터(3배)는 조건부라 그대로 두었습니다.
+
+**결과**(`npm run sim -- --runs 500`, 시드 1000~1499, 같은 봇)
+
+| 지표                                        | 목표         | 전        | 후                                  |
+| ------------------------------------------- | ------------ | --------- | ----------------------------------- |
+| 구석 봇 승률                                | 15~30%       | 37%       | **23%**                             |
+| 구석 봇 1막 통과                            | ≥ 95%        | 92%       | 93% (미달)                          |
+| 무작위 봇 1막 통과                          | ≤ 10%        | 14%       | 12% (미달)                          |
+| 유물 없이 구석 봇 승률                      | 0%           | 0%        | 0%                                  |
+| 2-보스 런 안 클리어(구석 봇)                | 긴장         | 99%       | 85% (점수 유물 있음 90% / 없음 43%) |
+| 3-3 런 안 클리어                            | 긴장         | 100%      | 89% (있음 90%)                      |
+| 2-1 런 안 클리어                            | —            | 96%       | 96% (있음 99% / 없음 89%)           |
+| 유물 효과 범위(첫 제시에서 고름 vs 다른 것) | 죽은 것 없음 | −11~+17점 | −15~+14점 (아래 해석)               |
+
+**정직한 해석**
+
+- **승률은 목표 안으로 들어왔고, 점수 스테이지에 긴장이 생겼습니다.** 점수 유물이 없는 빌드도 2-보스를 43% 깹니다: 벽이 아니라 "어려운 판"입니다.
+- **D57의 일부를 뒤집었습니다.** "유물 없이 0%인 스테이지 없음"은 이제 2-보스와 3-3에서 깨집니다(유물 0개로 그 스테이지만 단독으로 하면 0%). 하지만 유물 0개로 2-보스에 도착하는 플레이어는 없습니다(제시를 매번 건너뛰어야 함). 잣대를 "유물 0개"에서 "점수 유물이 없는 빌드"로 바꾼 것이 이번 결정입니다(D79).
+- **1막 두 목표는 이번에도 못 맞췄습니다.** 유물은 1막에 거의 영향이 없고(첫 유물은 1-1 뒤에야 생김), 1막 보스에서 구석 봇이 지는 원인과 무작위 봇이 지는 원인이 둘 다 "막힘"이라 한 손잡이가 양쪽을 같이 움직입니다. 1막 보스의 이동을 130으로 늘려도 구석 봇은 그대로(실패가 이동이 아니라 막힘이므로), 돌을 늘리면 둘 다 떨어졌습니다. 1막은 튜토리얼이라 사람에게는 봇보다 쉬울 것으로 보고 표를 건드리지 않았습니다. 사람 플레이 기록으로 다시 볼 일입니다.
+- **유물 효과 표는 여전히 "이 봇에게의 가치"입니다.** 표준오차가 ±5점이라 대부분은 잡음 범위이고, 실행할 때마다 ±7점쯤 오르내립니다. 꾸준히 음수인 정지 핀(−10)·축전 코일(−15)은 봇이 정지 핀을 쓰지 않고 사용 유물을 막혔을 때만 쓰기 때문입니다. 사람에게는 쓸모 있는 선택지라고 판단해 남겼습니다.
+
+#### 연습 과제
+
+1. `npm run sim -- --bots corner` 출력의 "score stages with / without a score relic" 줄을 읽고, 2-보스 목표를 1000과 1100으로 바꿔 두 숫자가 어떻게 움직이는지 보세요.
+2. 잔해 연료를 다시 "1개당 1"로 돌리고 같은 표를 만들어 보세요. 승률이 몇 점 오르나요? 그 정도면 이 유물 하나가 런을 대신 깬다고 할 수 있을까요?
+3. 봇에게 정지 핀 사용법(예: 가장 큰 타일이 구석에 있을 때 고정)을 가르쳐 정지 핀의 효과 점수가 어떻게 바뀌는지 재 보세요.
+
+### 8.7 포트폴리오 README 쓰는 법
+
+#### 왜 필요한가
+
+리뷰어는 저장소를 열면 README를 먼저, 그리고 대개 그것만 읽습니다. 1분 안에 "무엇인가 → 어떻게 생겼나 → 무엇이 다른가 → 코드에서 볼 만한 것은 어디인가"가 전달되어야 합니다.
+
+#### 어디에 쓰였나
+
+- `README.md`
+- `tools/capture-media.ts` — 빌드된 게임에서 디버그 훅으로 정확한 장면을 만들어 찍음(`npm run media`)
+- `tools/readme-tables.ts` + `tests/readme.test.ts` — 규칙 표 생성과 낡음 검사
+
+#### 핵심 코드
+
+이 README가 따른 순서와 원칙:
+
+1. **첫 화면에 답이 있게**: 제목, 한 줄 소개, 플레이 링크, 스크린샷 네 장. 스크롤하지 않아도 "무슨 게임인지" 보입니다.
+2. **차이를 숨기지 않기**: 같은 장르가 이미 있다는 사실을 먼저 말하고, 이 게임만의 규칙(대응 가능한 방해, 예고되는 보스, 공유 숫자 유물, 오늘의 시드)을 적습니다(RESEARCH.md의 포지셔닝 메모).
+3. **주장마다 코드 링크**: "결정적 코어"라고 쓰면 `src/core`로, "재생 동등성 테스트"라고 쓰면 그 테스트 파일로 갑니다. 리뷰어가 의심하면 바로 확인할 수 있게.
+4. **숫자는 잰 것만, 한계와 함께**: 프레임 시간 표에는 "headless 소프트웨어 래스터, 비교용"을, 밸런스 표에는 미달인 목표를 그대로 적습니다.
+5. **어긋날 수 없게 생성하기**: 유물·방해·보스·스테이지 표는 손으로 쓰지 않고 게임 데이터에서 만듭니다. 숫자를 바꾸고 `npm run readme`를 잊으면 테스트가 실패합니다.
+
+```ts
+// tools/readme-tables.ts — <!-- generated:NAME --> … <!-- /generated:NAME --> 사이를 다시 씀
+for (const [name, body] of Object.entries(sections())) {
+  const open = `<!-- generated:${name} -->`;
+  const close = `<!-- /generated:${name} -->`;
+  const start = out.indexOf(open);
+  const end = out.indexOf(close);
+  out = `${out.slice(0, start + open.length)}\n\n${body}\n\n${out.slice(end)}`;
+}
+return format(out, { ...(await resolveConfig(README)), filepath: README }); // Prettier와 싸우지 않게
+
+// tests/readme.test.ts
+expect(await updatedReadme(current)).toBe(current);
+```
+
+마지막 줄의 Prettier 포맷이 중요합니다. Prettier는 표의 열 폭을 맞추므로, 생성기가 만든 표를 Prettier가 다시 고치면 `format:check`와 README 검사가 서로 싸웁니다. 생성기가 처음부터 Prettier 결과를 내면 둘 다 통과합니다.
+
+스크린샷은 "보기 좋은 순간을 기다려 찍는" 대신 **장면을 만들어** 찍습니다: `?mode=run&stage=6&seed=31&relics=…`로 시작해 돌·얼음·저주가 모두 보일 때까지 진행, `load()`로 연쇄 콤보 보드를 만들고 시간을 멈춘 뒤 `advance(ms)`로 프레임 여섯 장. 같은 명령이면 같은 그림이 나옵니다.
+
+#### 연습 과제
+
+1. README의 "무엇이 다른가"를 세 줄로 줄여 보세요. 무엇을 남기고 무엇을 뺐나요?
+2. `tools/readme-tables.ts`에 "무한 모드 방해 증가율" 표를 추가해 보세요(`ENDLESS_TUNING`).
+3. 친구에게 README만 보여 주고 1분 뒤 "이 게임이 그냥 2048과 무엇이 다른지" 물어보세요. 대답이 README의 의도와 같나요?
+
 ---
 
-## 8. 설계 결정 기록
+## 9. 마무리: 전체 지도, 읽는 순서, 확장 과제
+
+### 9.1 개념 지도: 무엇이 어디에 있나
+
+| 개념                             | 주요 파일                                                              | 장            |
+| -------------------------------- | ---------------------------------------------------------------------- | ------------- |
+| 시드 고정 난수, 재현성           | `src/core/rng.ts`, `src/game/daily.ts`                                 | 2.1, 6.4      |
+| 순수 함수, 불변 상태             | `src/core/board.ts`, `src/core/run.ts`                                 | 2.2, 2.3      |
+| 이벤트·단계 기반 턴 결과         | `src/core/types.ts`, `src/core/turn.ts`                                | 2.4, 4.1      |
+| 데이터 주도 규칙(방해·보스·유물) | `src/core/hazards.ts`, `bosses.ts`, `relics.ts`, `balance.ts`          | 4.2~4.6       |
+| 상태 기계(런, 화면)              | `src/core/run.ts`, `src/game/runController.ts`                         | 4.3, 5.1      |
+| 게임 루프, 트윈, 뷰 모델         | `src/render/loop.ts`, `tween.ts`, `viewModel.ts`                       | 3.1~3.3       |
+| Canvas, DPR, 스프라이트 캐시     | `src/render/renderer.ts`, `spriteCache.ts`, `tilePainter.ts`           | 3.4, 3.8      |
+| 입력(스와이프·키보드·탭)         | `src/input/*`                                                          | 3.5, 3.6      |
+| 프레젠터와 DOM UI                | `src/game/runView.ts`, `src/ui/*`                                      | 5.2, 5.3      |
+| 주입 가능한 시계, 디버그 훅      | `src/render/clock.ts`, `src/game/debug.ts`                             | 3.9           |
+| 저장·검증·마이그레이션           | `src/save/*`                                                           | 6.1, 6.2      |
+| 온보딩                           | `src/game/runView.ts`(`LESSONS`), `runController.ts`                   | 6.3           |
+| Juice: 파티클·흔들림·히트스톱    | `src/game/feedback.ts`, `src/render/particles.ts`, `shake.ts`, `fx.ts` | 7.1~7.5       |
+| 소리 합성, 진동                  | `src/audio/*`, `src/input/haptics.ts`                                  | 7.6~7.9       |
+| 접근성(움직임 줄이기), 성능 예산 | `src/save/store.ts`(`motionReduced`), `src/render/budget.ts`           | 7.10, 7.11    |
+| 시뮬레이션 밸런스                | `tools/simulate.ts`, `src/core/balance.ts`                             | 4.7, 6.5, 8.6 |
+| PWA                              | `public/manifest.webmanifest`, `src/pwa/*`, `tools/vite-precache.ts`   | 8.1~8.3       |
+| CI/CD                            | `.github/workflows/*`                                                  | 8.4           |
+| 테스트 전략(단위·e2e·생성 문서)  | `tests/*`, `e2e/*`, `tools/readme-tables.ts`                           | 2.5, 8.5, 8.7 |
+
+### 9.2 코드 읽는 순서
+
+처음부터 끝까지 읽기보다, 한 턴이 흐르는 길을 따라 읽는 것을 권합니다. 각 단계에서 테스트 파일을 같이 열면 "이 함수가 무엇을 약속하는지"가 먼저 보입니다.
+
+1. **`src/core/types.ts` → `rng.ts` → `board.ts`** (+ `tests/board.test.ts`): 그냥 2048. 상태와 이벤트의 모양을 익힙니다.
+2. **`src/core/turn.ts` → `hazards.ts` → `bosses.ts`** (+ `tests/hazards.test.ts`, `bosses.test.ts`): 한 턴이 단계로 나뉘는 방식.
+3. **`src/core/relics.ts` → `balance.ts` → `run.ts`** (+ `tests/relics.test.ts`, `run.test.ts`): 훅과 런 상태 기계. 여기까지가 "게임 규칙 전부"입니다.
+4. **`tools/simulate.ts`**: 코어만으로 게임을 돌리는 법. `npm run sim -- --runs 50 --bots corner`를 실행해 보세요.
+5. **`src/render/clock.ts` → `tween.ts` → `viewModel.ts`** (+ `tests/viewModel.test.ts`): 이벤트가 애니메이션이 되는 곳. DOM 없이 테스트됩니다.
+6. **`src/render/renderer.ts` → `spriteCache.ts` → `tilePainter.ts`**: 실제로 그리는 곳.
+7. **`src/game/runController.ts` → `runView.ts`** (+ `tests/runController.test.ts`): 화면 상태 기계와 한국어 문구.
+8. **`src/main.ts`**: 모든 부품이 조립되는 곳. 여기서 `BoardDisplay`/`UiDisplay`를 감싸 연출을 끼우는 방식을 보세요.
+9. **`src/game/feedback.ts` → `src/render/fx.ts` → `particles.ts` → `src/audio/engine.ts`**: 손맛.
+10. **`src/save/*` → `src/pwa/*` → `e2e/run.spec.ts`**: 오래 살아남는 앱을 위한 바깥 층.
+
+### 9.3 확장 과제
+
+난이도 순입니다. 각 과제에 "어디를 고치면 되는지"와 "어떻게 확인하는지"를 적었습니다.
+
+1. **새 유물 하나**: "구석이 비어 있으면 다음 생성이 구석에" 같은 유물을 `relics.ts`의 `DEFS`에 추가하세요. 설명 한 줄, 공통 숫자·키워드만, `isUseful` 조건. 확인: `tests/relics.test.ts`의 설계 규칙 테스트, `npm run sim`의 유물 효과 표, `npm run readme`.
+2. **새 방해 타일**: "자석"(인접한 같은 수를 끌어당김). `hazards.ts`의 매개변수 + `turn.ts`의 단계 + `tilePainter.ts`의 오버레이. 확인: `replayPhases` 인과 검사가 새 이벤트도 통과하는지.
+3. **시드 공유 링크**: 결과 화면에 `?seed=` 링크 복사 버튼. 오늘의 도전과 같은 시드 경로를 씁니다(`daily.ts`). 확인: e2e로 링크를 열어 같은 첫 보드가 나오는지.
+4. **유물 도감**: 지금까지 본 유물을 저장(`save/store.ts`에 필드 추가 → 스키마 버전 올리기 → 마이그레이션 테스트)하고 메뉴에서 보여 주기. 6.1장의 마이그레이션을 직접 써 보는 과제입니다.
+5. **네 번째 보스**: 예를 들어 "6턴마다 가장 작은 타일 둘을 맞바꿈". `bosses.ts`에 정의와 미리보기(`bossPreview`)를 넣고, "계산할 수 있는 정보는 보여 준다" 원칙에 맞게 HUD에 다음 대상을 표시하세요.
+6. **사람 플레이 기록으로 밸런스 보기**: 런이 끝날 때 (시드, 고른 유물, 스테이지별 이동 수)를 로컬에 남기고, 봇 표와 나란히 비교하는 도구를 `tools/`에 만드세요.
+7. **실기기 성능 측정**: 디버그 훅의 `frameStats()`를 실제 휴대폰에서 읽어 7.11장의 표에 한 열을 추가하세요(원격 디버깅: 안드로이드 크롬 `chrome://inspect`).
+8. **5×5 보드 변형**: `DEFAULT_RULES.boardSize`를 바꾸면 어디가 깨지는지 찾아보세요. 레이아웃·스프라이트 캐시·밸런스가 각각 무엇을 가정하고 있었나요?
+
+---
+
+## 10. 설계 결정 기록
 
 각 결정은 "무엇을 / 왜 / 대가(포기한 것)" 순서로 적습니다.
 
@@ -3213,7 +3802,7 @@ for (const t of [0, 50, 100, 140, 180, 230, 290, 360, 450, 600, 800]) {
 ### D30. 사용 유물의 충전: 얻을 때 0, 스테이지가 시작할 때마다 회복. 무한 모드에서는 유물을 고르는 순간이 "스테이지 시작"
 
 - **왜**: "스테이지마다 1회"를 한 규칙(`rechargePerStage`)으로 표현하고, 얻자마자 다음 스테이지 시작에서 채워지므로 사실상 바로 쓸 수 있습니다. 무한 모드에는 스테이지가 없어서, 유물 선택이 `onStageStart` 훅(충전, 점화 플러그, 도약 렌즈 초기화)을 부르는 시점이 됩니다. 덕분에 이 유물들이 무한 모드에서도 죽은 선택지가 아닙니다.
-- **대가**: 무한 모드에서 점화 플러그는 "유물을 고를 때마다 16 하나"가 되어 런 모드와 체감이 다릅니다.
+- **대가**: 무한 모드에서 점화 플러그는 "유물을 고를 때마다 32 하나"가 되어 런 모드와 체감이 다릅니다.
 
 ### D31. 되돌리기: 한 단계, 직전 "행동"(이동 또는 유물 사용) 전체를 RNG까지 복원, 되돌리기 자신의 충전만 빼고
 
@@ -3426,13 +4015,63 @@ for (const t of [0, 50, 100, 140, 180, 230, 290, 360, 450, 600, 800]) {
 - **왜**: 3.8장의 원칙(블러는 캐시 안에서만)을 이 효과만 어기고 있었습니다. 넓고 옅은 선 + 좁고 밝은 선 두 겹으로 거의 같은 모습입니다. 측정에서 보스 턴이 빨라진 데 기여한 것으로 보입니다(따로 떼어 재지는 않음).
 - **대가**: 번짐이 완전히 부드럽지는 않습니다.
 
+### D73. PWA는 플러그인 없이: 직접 쓴 서비스 워커 + 작은 Vite 플러그인
+
+- **왜**: 한 페이지, 파일 여덟 개짜리 게임에 필요한 것은 "목록 받기, 옛 캐시 지우기, 캐시 우선" 셋뿐입니다. 직접 쓰면 주석 포함 80줄이고 생명주기가 코드에 그대로 보여 공부 자료가 됩니다. 개발 의존성도 늘지 않습니다(Workbox 계열은 의존성이 많아 `npm audit` 소음도 늘어남). 가장 위험한 캐시 무효화는 내용 해시로 기계적으로 처리합니다.
+- **대가**: 런타임 캐싱 전략, 백그라운드 동기화 같은 기능이 필요해지면 직접 짜야 합니다. 워커는 페이지와 모듈을 공유할 수 없어 메시지 문자열을 두 곳에 두고 테스트로 묶었습니다.
+
+### D74. 업데이트는 "기다렸다가 묻기". 새로고침은 플레이어가 누를 때만
+
+- **왜**: 런 도중 자동 새로고침은 최악의 경험이고, 설치 즉시 넘겨받기(`skipWaiting`)는 열린 페이지와 캐시의 버전이 섞일 수 있습니다. 런은 매 이동 저장되므로 플레이어가 고른 순간에 새로고침해도 잃는 것이 없습니다. 첫 설치의 `controllerchange`는 무시합니다.
+- **대가**: 안내를 계속 "나중에"로 넘기면 옛 버전을 오래 씁니다(탭을 모두 닫고 다시 열면 새 버전이 적용됨).
+
+### D75. 범위 안의 모든 페이지 이동은 앱 셸로, 캐시 우선. 큰 아이콘과 공유 이미지는 프리캐시에서 뺌
+
+- **왜**: 게임은 한 페이지이고 `?seed=`·`?debug`는 스크립트가 읽으므로 쿼리를 무시하고 `index.html`로 대답해야 오프라인에서도 링크가 열립니다. 512 아이콘과 1200×630 공유 이미지는 설치 화면과 링크 미리보기만 쓰므로, 빼면 프리캐시가 약 212 KB로 줄어듭니다.
+- **대가**: 범위 안에 다른 HTML 페이지가 생기면 규칙을 바꿔야 합니다.
+
+### D76. 매니페스트의 `start_url`·`scope`·`id`는 상대 경로 `./`
+
+- **왜**: 매니페스트 위치를 기준으로 풀리므로 `base: '/2048-project/'`와 함께 움직입니다. 로컬 미리보기와 Pages에서 같은 파일이 맞고, 테스트가 `/2048-project/`로 풀리는지 확인합니다.
+- **대가**: 매니페스트를 다른 폴더로 옮기면 의미가 바뀝니다.
+
+### D77. 아이콘과 공유 이미지는 SVG로 그려 Playwright Chromium으로 래스터화하고, 결과 PNG를 커밋
+
+- **왜**: "에셋 0"을 지키면서 이미지 편집기 없이 다시 만들 수 있습니다. 이미 있는 브라우저를 쓰므로 이미지 라이브러리가 필요 없습니다. 빌드 때마다 만들지 않고 커밋하는 이유는 빌드를 빠르고 결정적으로 두기 위해서입니다(폰트·브라우저가 다른 CI에서 미세하게 다른 PNG가 나오는 것을 피함).
+- **대가**: 그림을 바꾸면 `npm run icons`를 손으로 돌려야 합니다. 공유 이미지의 한국어 글꼴은 그것을 만든 기계의 글꼴을 따릅니다.
+
+### D78. e2e는 같은 시드의 코어를 기준으로 상태를 비교하고, 시간은 `settle()`로. Playwright는 1.63.0으로 정확히 고정
+
+- **왜**: 손으로 적은 기댓값은 밸런스 숫자가 바뀔 때마다 깨집니다. 코어가 기준이면 e2e는 "입력·화면·저장이 코어와 같은 결과를 내는가"만 묻습니다. 잠자기 대신 애니메이션을 끝으로 보내면 빠르고 흔들리지 않습니다(`--repeat-each 5`로 확인). Playwright 버전은 미리 설치된 Chromium 빌드(1243)와 짝이 맞아야 해서 범위가 아닌 정확한 버전으로 둡니다.
+- **대가**: 픽셀이 맞는지는 e2e가 보지 않습니다(스크린샷 비교는 OS마다 달라 두지 않음). 연출은 7.12장의 밀착 인화로 사람이 봅니다.
+
+### D79. 점수 보스(2-보스, 3-3)는 빌드를 전제로 한다. 잣대는 "유물 0개"가 아니라 "점수 유물이 없는 빌드" (D57 일부 뒤집음)
+
+- **왜**: 2048의 점수는 분포가 좁아서(±10%) "유물 0개로도 가능한 목표"는 유물 7~10개를 든 런에게 늘 100%입니다. 유물 0개로 그 스테이지에 도착하는 사람은 없으므로, 현실적인 약한 빌드(점수 유물 없음)가 40%대로 깰 수 있는 선에 맞췄습니다(8.6장).
+- **대가**: 스테이지 단독 표(유물 없음)에서 2-보스와 3-3은 0%입니다. 2-1(700)은 유물 없이도 되는 첫 점수 스테이지로 남겼습니다.
+
+### D80. 잔해 연료는 "돌 2개당 이동 1". 남는 개수는 유물 카운터에 두고 스테이지마다 0으로
+
+- **왜**: 돌이 많은 막에서 이동을 지나치게 늘려 가장 강한 일반 유물이었습니다. 수치(1개당 1)를 더 낮출 수 없어 "몇 개당"으로 바꿨고, 이미 있는 `counter` 칸(D28)을 써서 새 상태가 생기지 않았습니다.
+- **대가**: 돌 하나를 깼을 때는 아무 일도 일어나지 않아 피드백이 한 번 걸러 옵니다.
+
+### D81. README의 규칙 표는 게임 데이터로 만들고, 낡으면 테스트가 실패한다
+
+- **왜**: 손으로 쓴 표는 수치를 바꾸는 순간 거짓말이 됩니다(실제로 4.5장의 표가 그랬습니다). 생성기가 Prettier 결과까지 만들어 `format:check`와 충돌하지 않습니다.
+- **대가**: 표의 모양을 바꾸려면 README가 아니라 `tools/readme-tables.ts`를 고쳐야 합니다.
+
+### D82. CI(모든 push·PR)와 배포(main만)를 나누고, 배포 전에도 테스트한다
+
+- **왜**: 배포 워크플로는 Pages 쓰기 권한과 신원 토큰을 가지므로 실행 범위를 `main`으로 좁힙니다. 수동 실행은 아무 브랜치에서나 시작할 수 있어 작업에 `if: github.ref == 'refs/heads/main'`을 둡니다. 배포가 CI 결과에 기대지 않고 직접 테스트하면, 검사를 건너뛴 커밋이 올라갈 일이 없습니다.
+- **대가**: `main`에 push하면 테스트가 두 번(CI, 배포) 돕니다(1초 남짓이라 무시할 만함). 워크플로는 아직 실제로 실행해 보지 않았습니다.
+
 ---
 
 ## 부록: 자주 쓰는 명령어
 
 | 명령                 | 하는 일                                                                                                    |
 | -------------------- | ---------------------------------------------------------------------------------------------------------- |
-| `npm install`        | 의존성 설치                                                                                                |
+| `npm ci`             | 잠금 파일 그대로 의존성 설치 (`npm install`은 잠금 파일을 갱신할 수 있음)                                  |
 | `npm run dev`        | 개발 서버 (저장하면 즉시 반영)                                                                             |
 | `npm run test`       | 테스트 한 번 실행                                                                                          |
 | `npm run test:watch` | 파일이 바뀔 때마다 테스트 다시 실행                                                                        |
@@ -3441,3 +4080,7 @@ for (const t of [0, 50, 100, 140, 180, 230, 290, 360, 450, 600, 800]) {
 | `npm run build`      | 타입 검사 + 배포용 빌드 (`dist/`)                                                                          |
 | `npm run preview`    | 빌드 결과를 로컬에서 미리 보기 (`http://localhost:4173/2048-project/`, 디버그는 `?debug&seed=42&mode=run`) |
 | `npm run sim`        | 밸런스 봇 시뮬레이터 (기본 300런/봇, `-- --runs 1000`으로 늘리기, `-- --bots corner,random`으로 고르기)    |
+| `npm run e2e`        | 빌드 후 `vite preview`를 띄워 Playwright e2e 실행 (처음엔 `npx playwright install chromium`)               |
+| `npm run readme`     | README의 규칙 표를 게임 데이터로 다시 만들기 (`-- --check`는 낡았는지만 검사)                              |
+| `npm run icons`      | 아이콘·공유 이미지를 다시 그리기 (`public/`)                                                               |
+| `npm run media`      | README 스크린샷 다시 찍기 (`docs/media/`, 먼저 `npm run build`)                                            |
